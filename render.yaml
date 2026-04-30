@@ -3,12 +3,15 @@ services:
     name: splitwise-assistant
     runtime: docker
     dockerfilePath: ./Dockerfile
-    dockerContext: ..
+    dockerContext: .
     plan: free
+    healthCheckPath: /health
     envVars:
       - key: ANTHROPIC_API_KEY
         sync: false
-      - key: SPLITWISE_OAUTH_ACCESS_TOKEN
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SPLITWISE_API_KEY
         sync: false
       - key: TWILIO_ACCOUNT_SID
         sync: false
@@ -16,7 +19,7 @@ services:
         sync: false
       - key: TWILIO_WHATSAPP_NUMBER
         value: "whatsapp:+14155238886"
-      - key: SPLITWISE_MCP_PATH
-        value: /app/splitwise-mcp/app.py
+      - key: LLM_PROVIDER
+        value: "anthropic"
       - key: PORT
         value: "8000"

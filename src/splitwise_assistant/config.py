@@ -6,7 +6,6 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     anthropic_api_key: str
-    splitwise_mcp_path: str = "/app/splitwise-mcp/app.py"
 
     # Splitwise auth (passed through to MCP server via env)
     splitwise_oauth_access_token: Optional[str] = None
