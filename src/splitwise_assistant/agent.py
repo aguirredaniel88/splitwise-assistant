@@ -17,9 +17,9 @@ async def run_agent(session: Session, user_message: str) -> str:
 
     session.history.append({"role": "user", "content": user_message})
 
-    # Keep last 30 messages to avoid context overflow
-    if len(session.history) > 30:
-        session.history = session.history[-30:]
+    # Keep last 20 messages to limit token usage
+    if len(session.history) > 20:
+        session.history = session.history[-20:]
 
     tools = (
         bridge.to_anthropic_tools()
@@ -42,6 +42,8 @@ async def run_agent(session: Session, user_message: str) -> str:
     return "Sorry, I couldn't complete that request. Please try again."
 
 
+_MAX_TOOL_RESULT_CHARS = 800  # cap stored tool results to control token usage
+
 async def _execute_tools(tool_calls) -> list[tuple[str, str, bool]]:
     results = []
     for tc in tool_calls:
@@ -54,6 +56,8 @@ async def _execute_tools(tool_calls) -> list[tuple[str, str, bool]]:
             logger.exception("Tool %s failed", tc.name)
             content = f"Error: {exc}"
             is_error = True
+        if len(content) > _MAX_TOOL_RESULT_CHARS:
+            content = content[:_MAX_TOOL_RESULT_CHARS] + "\n…(truncated)"
         results.append((tc.id, content, is_error))
     return results
 
