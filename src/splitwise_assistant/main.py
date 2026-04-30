@@ -25,7 +25,7 @@ app = FastAPI(title="Splitwise Assistant", version="0.1.0", lifespan=lifespan)
 app.include_router(whatsapp_router)
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
     tools = await bridge.list_tools()
     return {"status": "ok", "tools_available": len(tools)}
