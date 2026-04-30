@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Any
 
-from .llm import LLMProvider, parse_with_haiku
+from .llm import LLMProvider
 from .mcp_bridge import bridge
 from .session import Session
 

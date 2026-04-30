@@ -1,4 +1,4 @@
-"""Persistent FastMCP client bridge to the splitwise-mcp server."""
+"""In-process FastMCP client bridge to the splitwise-mcp server."""
 
 import logging
 import os
@@ -12,26 +12,28 @@ logger = logging.getLogger(__name__)
 
 
 class MCPBridge:
-    """Manages a persistent connection to the splitwise-mcp FastMCP server."""
+    """Connects to the splitwise-mcp server in-process (no subprocess needed)."""
 
     def __init__(self) -> None:
         self._client: Client | None = None
         self._tools_cache: list | None = None
 
     async def startup(self) -> None:
-        env = {}
+        # Inject Splitwise credentials into the process env before the MCP
+        # server's lifespan reads them via SplitwiseConfig.from_env().
         if settings.splitwise_oauth_access_token:
-            env["SPLITWISE_OAUTH_ACCESS_TOKEN"] = settings.splitwise_oauth_access_token
+            os.environ["SPLITWISE_OAUTH_ACCESS_TOKEN"] = settings.splitwise_oauth_access_token
         if settings.splitwise_api_key:
-            env["SPLITWISE_API_KEY"] = settings.splitwise_api_key
+            os.environ["SPLITWISE_API_KEY"] = settings.splitwise_api_key
 
-        # Merge with current process env so the subprocess inherits PATH etc.
-        full_env = {**os.environ, **env}
+        from splitwise_mcp_server.server import create_server
+        mcp_server = create_server()
 
-        self._client = Client(settings.splitwise_mcp_path, env=full_env)
+        # Client accepts a FastMCP instance directly — runs entirely in-process.
+        self._client = Client(mcp_server)
         await self._client.__aenter__()
         self._tools_cache = await self._client.list_tools()
-        logger.info("MCPBridge connected — %d tools available", len(self._tools_cache))
+        logger.info("MCPBridge connected (in-process) — %d tools available", len(self._tools_cache))
 
     async def shutdown(self) -> None:
         if self._client:
