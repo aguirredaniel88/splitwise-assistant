@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, Form, Response
 
 from .agent import run_agent
+from .llm import AVAILABLE_MODELS, make_provider, resolve_model
 from .receipt import handle_assignment_response, start_receipt_flow
 from .session import SessionManager
 
@@ -28,12 +29,15 @@ async def whatsapp_webhook(
     session = sessions.get(phone)
     body = Body.strip()
 
-    # Reset command
+    # ── Built-in commands ────────────────────────────────────────────────────
     if body.lower() in ("/reset", "reset", "start over"):
         sessions.reset(phone)
-        reply = "Conversation reset. How can I help you?"
-        return _twiml_response(reply)
+        return _twiml_response("Conversation reset. How can I help you?")
 
+    if body.lower().startswith("/model"):
+        return _twiml_response(_handle_model_command(body, session))
+
+    # ── Normal routing ────────────────────────────────────────────────────────
     try:
         if NumMedia and NumMedia > 0 and MediaUrl0 and MediaContentType0 and "image" in MediaContentType0:
             reply = await start_receipt_flow(MediaUrl0, session)
@@ -48,6 +52,27 @@ async def whatsapp_webhook(
         reply = f"Something went wrong: {str(exc)[:120]}\n\nSend 'reset' to start over."
 
     return _twiml_response(reply)
+
+
+def _handle_model_command(body: str, session) -> str:
+    parts = body.strip().split(None, 1)
+    current = session.llm_provider.name if session.llm_provider else "unknown"
+
+    if len(parts) == 1:
+        # "/model" with no argument — show status
+        aliases = ", ".join(AVAILABLE_MODELS)
+        return f"Current model: {current}\n\nAvailable: {aliases}"
+
+    alias = parts[1].strip()
+    resolved = resolve_model(alias)
+    if not resolved:
+        return f"Unknown model '{alias}'.\n\nAvailable: {', '.join(AVAILABLE_MODELS)}"
+
+    provider_name, model_id = resolved
+    session.llm_provider = make_provider(provider_name, model_id)
+    # Clear history — message formats are provider-specific
+    session.history = []
+    return f"Switched to {model_id}. Conversation history cleared."
 
 
 def _twiml_response(text: str) -> Response:

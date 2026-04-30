@@ -12,6 +12,14 @@ class Settings(BaseSettings):
     splitwise_oauth_access_token: Optional[str] = None
     splitwise_api_key: Optional[str] = None
 
+    # OpenAI
+    openai_api_key: Optional[str] = None
+
+    # Default LLM provider and models
+    llm_provider: str = "anthropic"  # "anthropic" | "openai"
+    anthropic_model: str = "claude-sonnet-4-6"
+    openai_model: str = "gpt-4o"
+
     # Twilio WhatsApp
     twilio_account_sid: Optional[str] = None
     twilio_auth_token: Optional[str] = None

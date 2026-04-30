@@ -1,6 +1,9 @@
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from .llm import LLMProvider
 
 
 @dataclass
@@ -21,6 +24,8 @@ class Session:
     current_item_index: int = 0
     group_id: Optional[int] = None
     friends: list[dict] = field(default_factory=list)  # cached from Splitwise
+    # Lazy-initialised on first access via SessionManager
+    llm_provider: Optional["LLMProvider"] = field(default=None, repr=False)
 
 
 class SessionManager:
@@ -29,9 +34,12 @@ class SessionManager:
         self._ttl = ttl_minutes * 60
 
     def get(self, phone: str) -> Session:
+        from .llm import default_provider
         self._cleanup()
         if phone not in self._sessions:
-            self._sessions[phone] = Session(phone=phone)
+            session = Session(phone=phone)
+            session.llm_provider = default_provider()
+            self._sessions[phone] = session
         session = self._sessions[phone]
         session.last_active = time.time()
         return session

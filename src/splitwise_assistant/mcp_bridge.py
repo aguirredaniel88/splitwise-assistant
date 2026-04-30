@@ -49,21 +49,33 @@ class MCPBridge:
         return await self._client.call_tool(name, arguments)
 
     def to_anthropic_tools(self) -> list[dict]:
-        """Convert FastMCP tool list to Anthropic tool definitions with prompt caching on the last entry."""
+        """Anthropic tool format with prompt caching on the last entry."""
         if self._tools_cache is None:
             return []
         tools = []
         for i, t in enumerate(self._tools_cache):
-            tool: dict = {
-                "name": t.name,
-                "description": t.description or "",
-                "input_schema": t.inputSchema if hasattr(t, "inputSchema") else {"type": "object", "properties": {}},
-            }
-            # Cache the last tool definition so the whole tools block is cached
+            schema = t.inputSchema if hasattr(t, "inputSchema") else {"type": "object", "properties": {}}
+            tool: dict = {"name": t.name, "description": t.description or "", "input_schema": schema}
             if i == len(self._tools_cache) - 1:
                 tool["cache_control"] = {"type": "ephemeral"}
             tools.append(tool)
         return tools
+
+    def to_openai_tools(self) -> list[dict]:
+        """OpenAI function-calling tool format."""
+        if self._tools_cache is None:
+            return []
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description or "",
+                    "parameters": t.inputSchema if hasattr(t, "inputSchema") else {"type": "object", "properties": {}},
+                },
+            }
+            for t in self._tools_cache
+        ]
 
 
 # Singleton used across the app

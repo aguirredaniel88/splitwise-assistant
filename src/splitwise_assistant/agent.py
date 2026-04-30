@@ -1,89 +1,61 @@
-"""Claude agentic loop that uses splitwise-mcp tools."""
+"""Claude/OpenAI agentic loop that uses splitwise-mcp tools."""
 
 import json
 import logging
 from typing import Any
 
-import anthropic
-
-from .config import settings
+from .llm import LLMProvider, parse_with_haiku
 from .mcp_bridge import bridge
 from .session import Session
 
 logger = logging.getLogger(__name__)
 
-_anthropic = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-
-SYSTEM_PROMPT = """You are a helpful Splitwise expense assistant on WhatsApp. You help users manage shared expenses with their friends and groups.
-
-You have access to Splitwise tools. When the user asks about expenses, balances, or anything money-related, use the appropriate tools automatically.
-
-Guidelines:
-- Be concise — this is WhatsApp, keep replies short and clear.
-- Format money as "$12.50" or "€10.00" depending on currency.
-- When creating expenses, always confirm with the user first unless they give very clear instructions.
-- If you need a friend or group name and it's ambiguous, use the resolve-friend or resolve-group tools.
-- Use bullet points (•) instead of markdown headers for lists."""
-
 
 async def run_agent(session: Session, user_message: str) -> str:
-    """Run one conversation turn through the Claude + MCP agentic loop."""
+    """Run one conversation turn through the LLM + MCP agentic loop."""
+    provider: LLMProvider = session.llm_provider
+
     session.history.append({"role": "user", "content": user_message})
 
-    # Trim history to last 30 messages to avoid context overflow
+    # Keep last 30 messages to avoid context overflow
     if len(session.history) > 30:
         session.history = session.history[-30:]
 
-    tools = bridge.to_anthropic_tools()
+    tools = (
+        bridge.to_anthropic_tools()
+        if provider.__class__.__name__ == "AnthropicProvider"
+        else bridge.to_openai_tools()
+    )
 
-    for _ in range(10):  # safety limit on tool-call iterations
-        response = _anthropic.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=1024,
-            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
-            messages=session.history,
-            tools=tools,
-        )
+    for _ in range(10):  # safety cap on tool-call rounds
+        response = provider.chat(session.history, tools)
 
-        if response.stop_reason == "end_turn":
-            text = _extract_text(response.content)
-            session.history.append({"role": "assistant", "content": response.content})
-            return text
+        if not response.has_tool_calls:
+            provider.append_assistant(session.history, response)
+            return response.text or "Done."
 
-        if response.stop_reason == "tool_use":
-            session.history.append({"role": "assistant", "content": response.content})
-            tool_results = await _execute_tools(response.content)
-            session.history.append({"role": "user", "content": tool_results})
-            continue
-
-        break
+        # Tool use round
+        provider.append_assistant(session.history, response)
+        results = await _execute_tools(response.tool_calls)
+        provider.append_tool_results(session.history, results)
 
     return "Sorry, I couldn't complete that request. Please try again."
 
 
-async def _execute_tools(content: list) -> list[dict]:
+async def _execute_tools(tool_calls) -> list[tuple[str, str, bool]]:
     results = []
-    for block in content:
-        if block.type != "tool_use":
-            continue
-        logger.info("Calling tool %s with %s", block.name, block.input)
+    for tc in tool_calls:
+        logger.info("Calling tool %s with %s", tc.name, tc.input)
         try:
-            raw = await bridge.call_tool(block.name, block.input)
-            result_text = _serialize(raw)
+            raw = await bridge.call_tool(tc.name, tc.input)
+            content = _serialize(raw)
+            is_error = False
         except Exception as exc:
-            logger.exception("Tool %s failed", block.name)
-            result_text = f"Error: {exc}"
-
-        results.append({
-            "type": "tool_result",
-            "tool_use_id": block.id,
-            "content": result_text,
-        })
+            logger.exception("Tool %s failed", tc.name)
+            content = f"Error: {exc}"
+            is_error = True
+        results.append((tc.id, content, is_error))
     return results
-
-
-def _extract_text(content: list) -> str:
-    return "\n".join(b.text for b in content if hasattr(b, "text")).strip()
 
 
 def _serialize(value: Any) -> str:
@@ -96,8 +68,11 @@ def _serialize(value: Any) -> str:
 
 
 async def parse_with_haiku(prompt: str) -> str:
-    """Low-cost parsing helper using Haiku."""
-    response = _anthropic.messages.create(
+    """Low-cost Haiku call for parsing tasks (always uses Anthropic)."""
+    import anthropic as _anthropic
+    from .config import settings
+    client = _anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    response = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=512,
         messages=[{"role": "user", "content": prompt}],
