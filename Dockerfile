@@ -2,8 +2,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install splitwise-mcp directly from GitHub (no directory copy needed)
-RUN pip install --no-cache-dir git+https://github.com/tarunn2799/splitwise-mcp.git
+# Install splitwise-mcp from GitHub archive (no git binary required)
+RUN pip install --no-cache-dir https://github.com/tarunn2799/splitwise-mcp/archive/refs/heads/main.tar.gz
 
 # Install the assistant
 COPY pyproject.toml README.md ./
