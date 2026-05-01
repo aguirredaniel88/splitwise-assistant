@@ -39,8 +39,10 @@ async def whatsapp_webhook(
             "Available commands:\n"
             "• *reset* — start a fresh conversation\n"
             "• */model* — show current AI model\n"
-            "• */model gpt* — switch to GPT-4o\n"
-            "• */model claude* — switch to Claude\n\n"
+            "• */model gemini* — switch to Gemini 2.0 Flash (free)\n"
+            "• */model llama* — switch to Llama 3.3 via Groq (free)\n"
+            "• */model claude* — switch to Claude Sonnet\n"
+            "• */model gpt* — switch to GPT-4o\n\n"
             "Send a receipt photo to split it.\n"
             "Or just ask anything about your Splitwise expenses!"
         )

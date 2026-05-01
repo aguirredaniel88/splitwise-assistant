@@ -14,8 +14,12 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: Optional[str] = None
 
+    # Free providers
+    google_api_key: Optional[str] = None   # Gemini — aistudio.google.com
+    groq_api_key: Optional[str] = None     # Groq / Llama — console.groq.com
+
     # Default LLM provider and models
-    llm_provider: str = "anthropic"  # "anthropic" | "openai"
+    llm_provider: str = "anthropic"  # "anthropic" | "openai" | "gemini" | "groq"
     anthropic_model: str = "claude-sonnet-4-6"
     openai_model: str = "gpt-4o"
 

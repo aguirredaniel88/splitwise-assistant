@@ -122,9 +122,12 @@ class AnthropicProvider(LLMProvider):
 # ---------------------------------------------------------------------------
 
 class OpenAIProvider(LLMProvider):
-    def __init__(self, model: str) -> None:
+    def __init__(self, model: str, api_key: str | None = None, base_url: str | None = None) -> None:
         self._model = model
-        self._client = openai.OpenAI(api_key=settings.openai_api_key)
+        self._client = openai.OpenAI(
+            api_key=api_key or settings.openai_api_key,
+            base_url=base_url,
+        )
 
     @property
     def name(self) -> str:
@@ -175,6 +178,7 @@ class OpenAIProvider(LLMProvider):
 
 # Friendly name → (provider, model)
 _MODEL_ALIASES: dict[str, tuple[str, str]] = {
+    # Anthropic (paid)
     "claude": ("anthropic", "claude-sonnet-4-6"),
     "claude-sonnet": ("anthropic", "claude-sonnet-4-6"),
     "sonnet": ("anthropic", "claude-sonnet-4-6"),
@@ -183,12 +187,21 @@ _MODEL_ALIASES: dict[str, tuple[str, str]] = {
     "opus": ("anthropic", "claude-opus-4-7"),
     "claude-haiku": ("anthropic", "claude-haiku-4-5-20251001"),
     "haiku": ("anthropic", "claude-haiku-4-5-20251001"),
+    # OpenAI (paid)
     "gpt": ("openai", "gpt-4o"),
     "gpt-4o": ("openai", "gpt-4o"),
     "chatgpt": ("openai", "gpt-4o"),
     "openai": ("openai", "gpt-4o"),
     "gpt-mini": ("openai", "gpt-4o-mini"),
     "gpt-4o-mini": ("openai", "gpt-4o-mini"),
+    # Google Gemini (free tier — aistudio.google.com)
+    "gemini": ("gemini", "gemini-2.0-flash"),
+    "gemini-flash": ("gemini", "gemini-2.0-flash"),
+    "gemini-2.0-flash": ("gemini", "gemini-2.0-flash"),
+    # Groq / Llama (free tier — console.groq.com)
+    "groq": ("groq", "llama-3.3-70b-versatile"),
+    "llama": ("groq", "llama-3.3-70b-versatile"),
+    "llama3": ("groq", "llama-3.3-70b-versatile"),
 }
 
 AVAILABLE_MODELS = sorted(_MODEL_ALIASES.keys())
@@ -204,10 +217,26 @@ def make_provider(provider: str, model: str) -> LLMProvider:
         return AnthropicProvider(model)
     if provider == "openai":
         return OpenAIProvider(model)
+    if provider == "gemini":
+        return OpenAIProvider(
+            model=model,
+            api_key=settings.google_api_key,
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        )
+    if provider == "groq":
+        return OpenAIProvider(
+            model=model,
+            api_key=settings.groq_api_key,
+            base_url="https://api.groq.com/openai/v1",
+        )
     raise ValueError(f"Unknown provider: {provider}")
 
 
 def default_provider() -> LLMProvider:
+    if settings.llm_provider == "gemini":
+        return make_provider("gemini", "gemini-2.0-flash")
+    if settings.llm_provider == "groq":
+        return make_provider("groq", "llama-3.3-70b-versatile")
     if settings.llm_provider == "openai":
         return OpenAIProvider(settings.openai_model)
     return AnthropicProvider(settings.anthropic_model)
