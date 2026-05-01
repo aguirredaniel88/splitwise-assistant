@@ -34,6 +34,17 @@ async def whatsapp_webhook(
         sessions.reset(phone)
         return _twiml_response("Conversation reset. How can I help you?")
 
+    if body.lower() in ("/help", "help", "ayuda", "commands"):
+        return _twiml_response(
+            "Available commands:\n"
+            "• *reset* — start a fresh conversation\n"
+            "• */model* — show current AI model\n"
+            "• */model gpt* — switch to GPT-4o\n"
+            "• */model claude* — switch to Claude\n\n"
+            "Send a receipt photo to split it.\n"
+            "Or just ask anything about your Splitwise expenses!"
+        )
+
     if body.lower().startswith("/model"):
         return _twiml_response(_handle_model_command(body, session))
 

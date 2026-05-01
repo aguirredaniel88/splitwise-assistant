@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 _anthropic = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
+# Keywords that trigger "split total equally" shortcut
+_TOTAL_KEYWORDS = {"total", "equally", "equal", "todo", "igual", "all", "together", "split total"}
+
 
 async def start_receipt_flow(image_url: str, session: Session) -> str:
     """Download receipt image, extract items, and start assignment flow."""
@@ -30,7 +33,7 @@ async def start_receipt_flow(image_url: str, session: Session) -> str:
     session.current_item_index = 0
     session.mode = "receipt"
 
-    # Pre-fetch friends to help with name resolution later
+    # Pre-fetch friends for name resolution
     try:
         raw = await bridge.call_tool("get-friends", {})
         friends_data = json.loads(raw) if isinstance(raw, str) else raw
@@ -45,26 +48,45 @@ async def start_receipt_flow(image_url: str, session: Session) -> str:
         f"  {i + 1}. {item.name}: ${item.price:.2f}"
         for i, item in enumerate(session.receipt_items)
     )
-
-    first = session.receipt_items[0]
     friends_hint = ""
     if session.friends:
         names = ", ".join(f["name"] for f in session.friends[:5])
-        friends_hint = f"\n\nYour friends: {names}"
+        friends_hint = f"\nYour friends: {names}"
 
+    first = session.receipt_items[0]
     return (
-        f"🧾 Receipt items found:\n{items_list}\n\nTotal: ${total:.2f}{friends_hint}\n\n"
-        f"Let's split them! For each item I'll ask who pays.\n"
-        f"You can say things like:\n"
-        f"  • \"Me and John 50/50\"\n"
-        f"  • \"All on Sarah\"\n"
-        f"  • \"Me 40%, Alice 30%, Bob 30%\"\n\n"
-        f"Who should pay for *{first.name}* (${first.price:.2f})?"
+        f"🧾 Receipt items:\n{items_list}\n\nTotal: ${total:.2f}{friends_hint}\n\n"
+        f"Reply *total* to split the full amount equally, "
+        f"or tell me who pays for *{first.name}* (${first.price:.2f})."
     )
 
 
 async def handle_assignment_response(user_response: str, session: Session) -> str:
-    """Process user's payer assignment for current receipt item."""
+    """Route to total-split or item-by-item flow based on user response."""
+
+    # ── Total split shortcut ────────────────────────────────────────────────
+    if session.mode == "receipt_total":
+        return await _handle_total_split(user_response, session)
+
+    # Detect "total" intent on any response during item-by-item flow
+    words = set(user_response.lower().split())
+    if words & _TOTAL_KEYWORDS:
+        total = sum(i.price for i in session.receipt_items)
+        session.mode = "receipt_total"
+        friends_hint = ""
+        if session.friends:
+            names = ", ".join(f["name"] for f in session.friends[:5])
+            friends_hint = f" (known: {names})"
+        return (
+            f"Got it! Who splits the total of ${total:.2f}?{friends_hint}\n"
+            f"Say e.g. 'me and Monica 50/50' or 'equally among everyone in <group>'."
+        )
+
+    # ── Item-by-item flow ────────────────────────────────────────────────────
+    return await _handle_item_assignment(user_response, session)
+
+
+async def _handle_item_assignment(user_response: str, session: Session) -> str:
     current = session.receipt_items[session.current_item_index]
     friends_json = json.dumps([f["name"] for f in session.friends])
 
@@ -73,34 +95,27 @@ async def handle_assignment_response(user_response: str, session: Session) -> st
 Item: {current.name} (${current.price:.2f})
 Known friends: {friends_json}
 
-Return ONLY valid JSON like this (percentages must sum to 100):
+Return ONLY valid JSON (percentages must sum to 100):
 {{"payers": [{{"name": "me", "percentage": 50}}, {{"name": "John", "percentage": 50}}]}}
 
 Rules:
 - "me", "myself", "I" → use name "me"
 - "all", "just me", "only me" → 100% to "me"
 - "equally" or "50/50" with two names → 50% each
-- Match names to known friends when possible (case-insensitive partial match is fine)"""
+- Match names to known friends (case-insensitive partial match)"""
 
     raw = await parse_with_haiku(prompt)
-    # Strip any markdown code fences
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    raw = raw.strip()
+    raw = _strip_fences(raw)
 
     try:
         data = json.loads(raw)
         payers = data.get("payers", [])
         total_pct = sum(p["percentage"] for p in payers)
         if abs(total_pct - 100) > 1:
-            return f"Percentages add up to {total_pct}%, not 100%. Please re-specify who pays for *{current.name}*."
+            return f"Percentages add up to {total_pct}%, not 100%. Who pays for *{current.name}*?"
     except json.JSONDecodeError:
-        return f"I didn't understand that. Please say who pays for *{current.name}* (${current.price:.2f})."
+        return f"I didn't understand that. Who pays for *{current.name}* (${current.price:.2f})?"
 
-    # Resolve friend IDs
     for payer in payers:
         payer["user_id"] = _resolve_friend_id(payer["name"], session.friends)
 
@@ -109,9 +124,49 @@ Rules:
 
     if session.current_item_index < len(session.receipt_items):
         next_item = session.receipt_items[session.current_item_index]
-        return f"Got it! Who should pay for *{next_item.name}* (${next_item.price:.2f})?"
+        return f"Got it! Who pays for *{next_item.name}* (${next_item.price:.2f})?"
 
-    # All items assigned — create expenses
+    return await _create_expenses(session)
+
+
+async def _handle_total_split(user_response: str, session: Session) -> str:
+    """Create a single expense for the receipt total with the specified split."""
+    total = sum(i.price for i in session.receipt_items)
+    friends_json = json.dumps([f["name"] for f in session.friends])
+
+    prompt = f"""Parse this expense split response: "{user_response}"
+
+Total amount: ${total:.2f}
+Known friends: {friends_json}
+
+Return ONLY valid JSON (percentages must sum to 100):
+{{"payers": [{{"name": "me", "percentage": 50}}, {{"name": "Monica", "percentage": 50}}]}}
+
+Rules:
+- "me", "myself", "I" → use name "me"
+- "equally" with N people → divide 100 equally
+- Match names to known friends (case-insensitive)"""
+
+    raw = await parse_with_haiku(prompt)
+    raw = _strip_fences(raw)
+
+    try:
+        data = json.loads(raw)
+        payers = data.get("payers", [])
+        total_pct = sum(p["percentage"] for p in payers)
+        if abs(total_pct - 100) > 1:
+            return f"Percentages don't add up to 100%. Please re-specify the split."
+    except json.JSONDecodeError:
+        return "I didn't understand that. Please say who splits the total and in what percentages."
+
+    for payer in payers:
+        payer["user_id"] = _resolve_friend_id(payer["name"], session.friends)
+
+    # Mark all items with the same payers (proportional to their price)
+    for item in session.receipt_items:
+        item.payers = payers
+
+    session.mode = "receipt"  # _create_expenses resets mode to chat
     return await _create_expenses(session)
 
 
@@ -119,7 +174,6 @@ async def _create_expenses(session: Session) -> str:
     """Create Splitwise expenses for all assigned receipt items."""
     created: list[str] = []
     errors: list[str] = []
-
     current_user_id = await _get_current_user_id()
 
     for item in session.receipt_items:
@@ -134,7 +188,6 @@ async def _create_expenses(session: Session) -> str:
             if session.group_id:
                 args["group_id"] = session.group_id
 
-            # Build user splits
             users = []
             for payer in item.payers:
                 share = round(item.price * payer["percentage"] / 100, 2)
@@ -159,7 +212,7 @@ async def _create_expenses(session: Session) -> str:
 
     lines = [f"✅ Created {len(created)} expense(s): " + ", ".join(created)]
     if errors:
-        lines.append(f"⚠️ Failed: " + ", ".join(errors))
+        lines.append("⚠️ Failed: " + ", ".join(errors))
     lines.append("\nWhat else can I help you with?")
     return "\n".join(lines)
 
@@ -168,7 +221,6 @@ async def _download_image(url: str) -> tuple[str, str]:
     auth: Optional[tuple] = None
     if settings.twilio_account_sid and settings.twilio_auth_token:
         auth = (settings.twilio_account_sid, settings.twilio_auth_token)
-
     async with httpx.AsyncClient() as http:
         resp = await http.get(url, auth=auth, follow_redirects=True)
         resp.raise_for_status()
@@ -184,15 +236,12 @@ async def _extract_items(image_b64: str, media_type: str) -> list[dict]:
         messages=[{
             "role": "user",
             "content": [
-                {
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": media_type, "data": image_b64},
-                },
+                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
                 {
                     "type": "text",
                     "text": (
                         "Extract all line items from this receipt. "
-                        "Return a JSON array with objects: [{\"name\": \"...\", \"price\": 0.00}]. "
+                        "Return a JSON array: [{\"name\": \"...\", \"price\": 0.00}]. "
                         "Include tax and tip as separate items if present. "
                         "Return ONLY the JSON array, no other text."
                     ),
@@ -201,12 +250,9 @@ async def _extract_items(image_b64: str, media_type: str) -> list[dict]:
         }],
     )
     raw = response.content[0].text.strip()
-    if "```" in raw:
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
+    raw = _strip_fences(raw)
     try:
-        return json.loads(raw.strip())
+        return json.loads(raw)
     except json.JSONDecodeError:
         logger.error("Failed to parse receipt items: %s", raw)
         return []
@@ -226,7 +272,7 @@ async def _get_current_user_id() -> Optional[int]:
 
 def _resolve_friend_id(name: str, friends: list[dict]) -> Optional[int]:
     if name.lower() in ("me", "myself", "i"):
-        return None  # current user, handled separately
+        return None
     name_lower = name.lower()
     for f in friends:
         if name_lower in f["name"].lower():
@@ -238,3 +284,12 @@ def _friend_name(f: dict) -> str:
     first = f.get("first_name", "")
     last = f.get("last_name", "")
     return f"{first} {last}".strip() or f.get("email", "Unknown")
+
+
+def _strip_fences(text: str) -> str:
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    return text.strip()

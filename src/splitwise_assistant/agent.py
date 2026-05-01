@@ -42,7 +42,7 @@ async def run_agent(session: Session, user_message: str) -> str:
     return "Sorry, I couldn't complete that request. Please try again."
 
 
-_MAX_TOOL_RESULT_CHARS = 800  # cap stored tool results to control token usage
+_MAX_TOOL_RESULT_CHARS = 4000  # cap stored tool results to control token usage
 
 async def _execute_tools(tool_calls) -> list[tuple[str, str, bool]]:
     results = []
