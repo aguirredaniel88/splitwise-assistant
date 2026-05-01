@@ -8,6 +8,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from .mcp_bridge import bridge
+from .web import router as web_router
 from .whatsapp import router as whatsapp_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
@@ -23,6 +24,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Splitwise Assistant", version="0.1.0", lifespan=lifespan)
 app.include_router(whatsapp_router)
+app.include_router(web_router)
 
 
 @app.api_route("/health", methods=["GET", "HEAD"])
@@ -33,14 +35,8 @@ async def health():
 
 @app.get("/")
 async def root():
-    return {
-        "name": "Splitwise Assistant",
-        "description": "WhatsApp bot for Splitwise expense management",
-        "endpoints": {
-            "whatsapp_webhook": "/webhook/whatsapp",
-            "health": "/health",
-        },
-    }
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/api/")
 
 
 def main():

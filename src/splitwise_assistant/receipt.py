@@ -21,13 +21,23 @@ _anthropic = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 _TOTAL_KEYWORDS = {"total", "equally", "equal", "todo", "igual", "all", "together", "split total"}
 
 
+async def start_receipt_flow_b64(image_b64: str, media_type: str, session: Session) -> str:
+    """Start receipt flow from already-encoded base64 image (web client)."""
+    return await _start_flow(image_b64, media_type, session)
+
+
 async def start_receipt_flow(image_url: str, session: Session) -> str:
-    """Download receipt image, extract items, and start assignment flow."""
+    """Download receipt image from URL (WhatsApp/Twilio) and start assignment flow."""
     image_b64, media_type = await _download_image(image_url)
+    return await _start_flow(image_b64, media_type, session)
+
+
+async def _start_flow(image_b64: str, media_type: str, session: Session) -> str:
 
     items = await _extract_items(image_b64, media_type)
     if not items:
         return "I couldn't read any items from the receipt. Please try a clearer photo."
+
 
     session.receipt_items = [ReceiptItem(name=i["name"], price=float(i["price"])) for i in items]
     session.current_item_index = 0
