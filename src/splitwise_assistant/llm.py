@@ -200,9 +200,15 @@ _MODEL_ALIASES: dict[str, tuple[str, str]] = {
     "gemini-1.5-flash": ("gemini", "gemini-1.5-flash"),
     "gemini-2.0-flash": ("gemini", "gemini-2.0-flash"),
     # Groq / Llama (free tier — console.groq.com)
-    "groq": ("groq", "llama-3.3-70b-versatile"),
-    "llama": ("groq", "llama-3.3-70b-versatile"),
-    "llama3": ("groq", "llama-3.3-70b-versatile"),
+    # llama-3.1-8b-instant: 30K TPM (better for free tier with many tools)
+    # llama-3.3-70b-versatile: 6K TPM (smarter but hits limits fast)
+    "groq": ("groq", "llama-3.1-8b-instant"),
+    "llama": ("groq", "llama-3.1-8b-instant"),
+    "llama3": ("groq", "llama-3.1-8b-instant"),
+    "llama-small": ("groq", "llama-3.1-8b-instant"),
+    "llama-large": ("groq", "llama-3.3-70b-versatile"),
+    "llama-3.1-8b-instant": ("groq", "llama-3.1-8b-instant"),
+    "llama-3.3-70b-versatile": ("groq", "llama-3.3-70b-versatile"),
 }
 
 AVAILABLE_MODELS = sorted(_MODEL_ALIASES.keys())
@@ -237,7 +243,7 @@ def default_provider() -> LLMProvider:
     if settings.llm_provider == "gemini":
         return make_provider("gemini", "gemini-2.0-flash")
     if settings.llm_provider == "groq":
-        return make_provider("groq", "llama-3.3-70b-versatile")
+        return make_provider("groq", "llama-3.1-8b-instant")
     if settings.llm_provider == "openai":
         return OpenAIProvider(settings.openai_model)
     return AnthropicProvider(settings.anthropic_model)

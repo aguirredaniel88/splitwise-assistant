@@ -28,7 +28,21 @@ async def run_agent(session: Session, user_message: str) -> str:
     )
 
     for _ in range(10):  # safety cap on tool-call rounds
-        response = provider.chat(session.history, tools)
+        try:
+            response = provider.chat(session.history, tools)
+        except Exception as exc:
+            # If the LLM rejects our request (bad tool format, rate limit exhausted, etc.)
+            # roll back the last user message so history stays clean, then surface the error.
+            logger.exception("LLM call failed")
+            session.history.pop()  # remove the user message we just appended
+            err = str(exc)
+            if "429" in err or "rate" in err.lower():
+                return "Rate limit reached. Please wait a moment and try again, or switch models with /model."
+            if "tool_use_failed" in err or "400" in err:
+                # History may be corrupted — wipe it so the next message starts fresh
+                session.history = []
+                return "The AI had trouble processing that. I've reset the conversation — please try again."
+            return f"Something went wrong: {err[:120]}"
 
         if not response.has_tool_calls:
             provider.append_assistant(session.history, response)
