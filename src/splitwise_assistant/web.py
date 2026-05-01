@@ -351,9 +351,13 @@ document.addEventListener('drop', e => {
 
 // ── Reset ────────────────────────────────────────────────────────────────────
 document.getElementById('reset-btn').addEventListener('click', async () => {
-  if (sessionId) await fetch(`${API}/chat?session_id=${sessionId}`, {method: 'DELETE'});
+  if (sessionId) await fetch(`${API}/chat?session_id=${sessionId}`, {method: 'DELETE'}).catch(()=>{});
+  // Generate a fresh session ID so the server starts from a clean slate
+  sessionId = crypto.randomUUID();
+  localStorage.setItem('sw_session', sessionId);
   document.getElementById('messages').innerHTML = '';
   addMsg('bot', 'New conversation started. How can I help you?');
+  await loadModels();
 });
 
 // ── Init ─────────────────────────────────────────────────────────────────────
