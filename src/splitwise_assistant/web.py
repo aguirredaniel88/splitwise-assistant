@@ -100,6 +100,21 @@ async def reset_chat(session_id: str):
     return {"ok": True}
 
 
+def _model_command(body: str, session) -> str:
+    parts = body.strip().split(None, 1)
+    current = session.llm_provider.name if session.llm_provider else "unknown"
+    if len(parts) == 1:
+        return f"Current model: {current}\n\nAvailable: {', '.join(sorted(AVAILABLE_MODELS))}"
+    alias = parts[1].strip()
+    resolved = resolve_model(alias)
+    if not resolved:
+        return f"Unknown model '{alias}'. Available: {', '.join(sorted(AVAILABLE_MODELS))}"
+    provider_name, model_id = resolved
+    session.llm_provider = make_provider(provider_name, model_id)
+    session.history = []
+    return f"Switched to {model_id}. Conversation history cleared."
+
+
 # ── UI ────────────────────────────────────────────────────────────────────────
 
 @router.get("/", response_class=HTMLResponse)

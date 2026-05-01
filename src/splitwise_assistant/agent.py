@@ -36,6 +36,11 @@ async def run_agent(session: Session, user_message: str) -> str:
             logger.exception("LLM call failed")
             session.history.pop()  # remove the user message we just appended
             err = str(exc)
+            if "credit balance" in err.lower() or "billing" in err.lower():
+                return (
+                    "Your Anthropic API credit is exhausted.\n"
+                    "Switch to a free model: /model llama  or  /model groq"
+                )
             if "429" in err or "rate" in err.lower():
                 return "Rate limit reached. Please wait a moment and try again, or switch models with /model."
             if "404" in err or "not found" in err.lower():
