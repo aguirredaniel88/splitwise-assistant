@@ -52,6 +52,14 @@ async def run_agent(session: Session, user_message: str) -> str:
             provider.append_assistant(session.history, response)
             return response.text or "Done."
 
+        # Validate tool names before executing — small models sometimes hallucinate names
+        valid_names = {t.name for t in (await bridge.list_tools())}
+        bad = [tc.name for tc in response.tool_calls if tc.name not in valid_names]
+        if bad:
+            logger.warning("Model hallucinated tool name(s): %s — resetting history", bad)
+            session.history = []
+            return "The AI called a tool that doesn't exist. Conversation reset — please try again."
+
         # Tool use round
         provider.append_assistant(session.history, response)
         results = await _execute_tools(response.tool_calls)

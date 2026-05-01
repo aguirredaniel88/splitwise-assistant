@@ -144,12 +144,16 @@ class OpenAIProvider(LLMProvider):
 
     def chat(self, messages: list[dict], tools: list[dict]) -> LLMResponse:
         full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
-        response = self._client.chat.completions.create(
+        kwargs: dict = dict(
             model=self._model,
             max_tokens=1024,
             messages=full_messages,
             tools=tools or openai.NOT_GIVEN,
         )
+        if self._slim_tools and tools:
+            # Smaller models hallucinate less with parallel tool calls disabled
+            kwargs["parallel_tool_calls"] = False
+        response = self._client.chat.completions.create(**kwargs)
         msg = response.choices[0].message
         text = msg.content or ""
         tool_calls = []
