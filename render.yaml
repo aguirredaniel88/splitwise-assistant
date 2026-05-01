@@ -20,6 +20,6 @@ services:
       - key: TWILIO_WHATSAPP_NUMBER
         value: "whatsapp:+14155238886"
       - key: LLM_PROVIDER
-        value: "anthropic"
+        value: "groq"
       - key: PORT
         value: "8000"
