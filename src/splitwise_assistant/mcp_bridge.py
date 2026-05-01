@@ -91,7 +91,7 @@ class MCPBridge:
 _CORE_TOOL_NAMES = {
     "get_current_user", "get_groups", "get_group", "get_friends", "get_friend",
     "create_expense", "get_expenses", "get_expense", "update_expense", "delete_expense",
-    "resolve_group", "resolve_friend", "get_categories",
+    "resolve_group", "resolve_friend",
 }
 
 
