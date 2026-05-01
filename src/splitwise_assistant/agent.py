@@ -17,15 +17,15 @@ async def run_agent(session: Session, user_message: str) -> str:
 
     session.history.append({"role": "user", "content": user_message})
 
-    # Keep last 20 messages to limit token usage
-    if len(session.history) > 20:
-        session.history = session.history[-20:]
+    max_hist = getattr(provider, "max_history", 20)
+    if len(session.history) > max_hist:
+        session.history = session.history[-max_hist:]
 
-    tools = (
-        bridge.to_anthropic_tools()
-        if provider.__class__.__name__ == "AnthropicProvider"
-        else bridge.to_openai_tools()
-    )
+    if provider.__class__.__name__ == "AnthropicProvider":
+        tools = bridge.to_anthropic_tools()
+    else:
+        slim = getattr(provider, "_slim_tools", False)
+        tools = bridge.to_openai_tools(slim=slim)
 
     for _ in range(10):  # safety cap on tool-call rounds
         try:

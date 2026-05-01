@@ -122,8 +122,17 @@ class AnthropicProvider(LLMProvider):
 # ---------------------------------------------------------------------------
 
 class OpenAIProvider(LLMProvider):
-    def __init__(self, model: str, api_key: str | None = None, base_url: str | None = None) -> None:
+    def __init__(
+        self,
+        model: str,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        slim_tools: bool = False,
+        max_history: int = 20,
+    ) -> None:
         self._model = model
+        self._slim_tools = slim_tools
+        self.max_history = max_history
         self._client = openai.OpenAI(
             api_key=api_key or settings.openai_api_key,
             base_url=base_url,
@@ -235,6 +244,8 @@ def make_provider(provider: str, model: str) -> LLMProvider:
             model=model,
             api_key=settings.groq_api_key,
             base_url="https://api.groq.com/openai/v1",
+            slim_tools=True,   # Groq free tier: 6K TPM — use compact tool set
+            max_history=8,     # shorter history to save tokens
         )
     raise ValueError(f"Unknown provider: {provider}")
 

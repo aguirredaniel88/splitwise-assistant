@@ -63,21 +63,45 @@ class MCPBridge:
             tools.append(tool)
         return tools
 
-    def to_openai_tools(self) -> list[dict]:
-        """OpenAI function-calling tool format."""
+    def to_openai_tools(self, slim: bool = False) -> list[dict]:
+        """OpenAI function-calling tool format.
+
+        slim=True uses only core tools with truncated descriptions to fit
+        low-TPM providers like Groq free tier.
+        """
         if self._tools_cache is None:
             return []
+        tools = self._tools_cache
+        if slim:
+            tools = [t for t in tools if t.name in _CORE_TOOL_NAMES]
         return [
             {
                 "type": "function",
                 "function": {
                     "name": t.name,
-                    "description": t.description or "",
+                    "description": _short_desc(t.description, slim),
                     "parameters": t.inputSchema if hasattr(t, "inputSchema") else {"type": "object", "properties": {}},
                 },
             }
-            for t in self._tools_cache
+            for t in tools
         ]
+
+
+# Tools included when slim=True (covers the vast majority of use cases)
+_CORE_TOOL_NAMES = {
+    "get_current_user", "get_groups", "get_group", "get_friends", "get_friend",
+    "create_expense", "get_expenses", "get_expense", "update_expense", "delete_expense",
+    "resolve_group", "resolve_friend", "get_categories",
+}
+
+
+def _short_desc(desc: str | None, slim: bool) -> str:
+    if not desc:
+        return ""
+    if not slim:
+        return desc
+    # Keep only the first sentence to save tokens
+    return desc.split(".")[0].strip()[:120]
 
 
 # Singleton used across the app
