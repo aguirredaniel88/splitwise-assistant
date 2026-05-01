@@ -56,7 +56,7 @@ async def run_agent(session: Session, user_message: str) -> str:
     return "Sorry, I couldn't complete that request. Please try again."
 
 
-_MAX_TOOL_RESULT_CHARS = 4000  # cap stored tool results to control token usage
+_MAX_TOOL_RESULT_CHARS = 50000
 
 async def _execute_tools(tool_calls) -> list[tuple[str, str, bool]]:
     results = []
@@ -76,11 +76,42 @@ async def _execute_tools(tool_calls) -> list[tuple[str, str, bool]]:
     return results
 
 
+# Fields that add bulk but are useless to the LLM
+_STRIP_KEYS = {
+    "picture", "avatar", "photo", "image", "large", "medium", "small",
+    "registration_status", "custom_picture", "notifications_read",
+    "notifications_count", "default_currency", "locale", "date_format",
+    "default_group_id", "first_name_with_is", "email",
+    "created_at", "updated_at", "whiteboard", "invite_link",
+    "has_single_default_split", "auto_simplify", "cover_photo",
+    "reminder_frequency", "change_type", "transaction_confirmed",
+    "transaction_method", "transaction_id", "payment_system_account_id",
+    "cashier", "entry_method", "creation_method", "receipt", "repayments",
+}
+
+
+def _compress(obj: Any) -> Any:
+    """Recursively strip noisy fields and long URLs from Splitwise responses."""
+    if isinstance(obj, dict):
+        return {
+            k: _compress(v)
+            for k, v in obj.items()
+            if k not in _STRIP_KEYS and not (isinstance(v, str) and v.startswith("http") and len(v) > 60)
+        }
+    if isinstance(obj, list):
+        return [_compress(i) for i in obj]
+    return obj
+
+
 def _serialize(value: Any) -> str:
     if isinstance(value, str):
-        return value
+        try:
+            parsed = json.loads(value)
+            return json.dumps(_compress(parsed), default=str)
+        except (json.JSONDecodeError, TypeError):
+            return value
     try:
-        return json.dumps(value, default=str, indent=2)
+        return json.dumps(_compress(value), default=str)
     except Exception:
         return str(value)
 
