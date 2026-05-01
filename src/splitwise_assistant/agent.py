@@ -38,8 +38,12 @@ async def run_agent(session: Session, user_message: str) -> str:
             err = str(exc)
             if "429" in err or "rate" in err.lower():
                 return "Rate limit reached. Please wait a moment and try again, or switch models with /model."
+            if "404" in err or "not found" in err.lower():
+                return (
+                    f"Model not available for your account: {session.llm_provider.name}\n"
+                    "Try /model llama (free) or /model claude."
+                )
             if "tool_use_failed" in err or "400" in err:
-                # History may be corrupted — wipe it so the next message starts fresh
                 session.history = []
                 return "The AI had trouble processing that. I've reset the conversation — please try again."
             return f"Something went wrong: {err[:120]}"
