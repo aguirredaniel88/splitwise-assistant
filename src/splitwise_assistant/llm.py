@@ -195,8 +195,9 @@ _MODEL_ALIASES: dict[str, tuple[str, str]] = {
     "gpt-mini": ("openai", "gpt-4o-mini"),
     "gpt-4o-mini": ("openai", "gpt-4o-mini"),
     # Google Gemini (free tier — aistudio.google.com)
-    "gemini": ("gemini", "gemini-2.0-flash"),
-    "gemini-flash": ("gemini", "gemini-2.0-flash"),
+    "gemini": ("gemini", "gemini-1.5-flash"),
+    "gemini-flash": ("gemini", "gemini-1.5-flash"),
+    "gemini-1.5-flash": ("gemini", "gemini-1.5-flash"),
     "gemini-2.0-flash": ("gemini", "gemini-2.0-flash"),
     # Groq / Llama (free tier — console.groq.com)
     "groq": ("groq", "llama-3.3-70b-versatile"),
