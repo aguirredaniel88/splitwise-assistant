@@ -239,6 +239,31 @@ async def _download_image(url: str) -> tuple[str, str]:
     return b64, media_type
 
 
+async def extract_receipt_items(image_b64: str, media_type: str) -> list[dict]:
+    return await _extract_items(image_b64, media_type)
+
+
+async def assign_receipt_items(session: Session, assignments: list[dict]) -> str:
+    """Apply payer selections from web UI and create Splitwise expenses.
+
+    assignments: [{"item_index": int, "payer_ids": [int|None, ...]}]
+    None in payer_ids means the current user.
+    Multiple payer_ids split the item equally.
+    """
+    for a in assignments:
+        idx = a["item_index"]
+        payer_ids: list = a.get("payer_ids") or []
+        if not payer_ids or not (0 <= idx < len(session.receipt_items)):
+            continue
+        n = len(payer_ids)
+        unit = round(100 / n, 4)
+        payers = [{"user_id": uid, "percentage": unit, "name": ""} for uid in payer_ids]
+        # Absorb rounding remainder into last payer
+        payers[-1]["percentage"] = round(100 - unit * (n - 1), 4)
+        session.receipt_items[idx].payers = payers
+    return await _create_expenses(session)
+
+
 async def _extract_items(image_b64: str, media_type: str) -> list[dict]:
     response = _anthropic.messages.create(
         model="claude-sonnet-4-6",

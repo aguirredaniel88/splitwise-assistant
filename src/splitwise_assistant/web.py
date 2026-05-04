@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from .agent import run_agent
 from .llm import AVAILABLE_MODELS, make_provider, resolve_model
-from .receipt import handle_assignment_response, start_receipt_flow_b64
+from .receipt import assign_receipt_items, handle_assignment_response, start_receipt_flow_b64
 from .session import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,11 @@ class ChatRequest(BaseModel):
 class ModelRequest(BaseModel):
     model: str
     session_id: str
+
+
+class ReceiptAssignRequest(BaseModel):
+    session_id: str
+    assignments: list[dict]  # [{"item_index": int, "payer_ids": [int|null]}]
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -61,15 +66,34 @@ async def chat(req: ChatRequest):
 @router.post("/chat/image")
 async def chat_image(session_id: str = Form(...), file: UploadFile = File(...)):
     session = _sessions.get(f"web:{session_id}")
+    receipt_data = None
     try:
         data = await file.read()
         b64 = base64.standard_b64encode(data).decode()
         media_type = (file.content_type or "image/jpeg").split(";")[0]
         reply = await start_receipt_flow_b64(b64, media_type, session)
+        if session.mode == "receipt" and session.receipt_items:
+            receipt_data = {
+                "items": [{"name": item.name, "price": item.price} for item in session.receipt_items],
+                "members": [{"id": f["id"], "name": f["name"]} for f in session.friends],
+            }
     except Exception as exc:
         logger.exception("Error processing uploaded image")
         reply = f"Couldn't process the image: {str(exc)[:200]}"
-    return {"reply": reply, "session_id": session_id}
+    return {"reply": reply, "session_id": session_id, "receipt_data": receipt_data}
+
+
+@router.post("/chat/receipt/assign")
+async def receipt_assign(req: ReceiptAssignRequest):
+    session = _sessions.get(f"web:{req.session_id}")
+    if session.mode != "receipt" or not session.receipt_items:
+        return {"reply": "No active receipt session.", "session_id": req.session_id}
+    try:
+        reply = await assign_receipt_items(session, req.assignments)
+    except Exception as exc:
+        logger.exception("Error creating receipt expenses")
+        reply = f"Failed to create expenses: {str(exc)[:200]}"
+    return {"reply": reply, "session_id": req.session_id}
 
 
 @router.get("/chat/models")
@@ -177,6 +201,30 @@ _HTML = """<!DOCTYPE html>
   .msg.bot.typing { color: var(--text2); font-style: italic; }
   .msg .img-preview { max-width: 220px; border-radius: 10px; margin-bottom: 6px; display: block; }
 
+  /* ── Receipt assignment panel ─────────────────────────────────────────── */
+  .receipt-panel { align-self: flex-start; max-width: min(520px, 92%);
+                   background: var(--bot-bg); border: 1px solid var(--border);
+                   border-radius: var(--radius) var(--radius) var(--radius) 4px;
+                   padding: 14px 16px; }
+  .receipt-panel-title { font-weight: 600; margin-bottom: 14px; font-size: .95rem; }
+  .receipt-item { margin-bottom: 14px; }
+  .receipt-item:last-of-type { margin-bottom: 0; }
+  .item-label { font-size: .85rem; color: var(--text2); margin-bottom: 6px; display: flex;
+                justify-content: space-between; }
+  .item-label .item-name { color: var(--text); font-weight: 500; }
+  .payer-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .payer-chip { padding: 4px 12px; border-radius: 20px; font-size: .82rem;
+                border: 1px solid var(--border); background: var(--surface2);
+                cursor: pointer; transition: background .15s, border-color .15s; color: var(--text); }
+  .payer-chip:hover { background: var(--border); }
+  .payer-chip.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .receipt-divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+  .receipt-submit { width: 100%; padding: 9px; background: var(--accent);
+                    border-color: var(--accent); color: #fff; border-radius: 10px;
+                    font-weight: 600; font-size: .9rem; margin-top: 14px; }
+  .receipt-submit:hover:not(:disabled) { background: var(--accent-h); border-color: var(--accent-h); }
+  .receipt-submit:disabled { opacity: .45; cursor: not-allowed; }
+
   .input-row { display: flex; gap: 8px; padding: 14px 20px;
                background: var(--surface); border-top: 1px solid var(--border);
                flex-shrink: 0; align-items: flex-end; }
@@ -245,6 +293,99 @@ function addMsg(role, text, imgSrc) {
 
 function typing() {
   return addMsg('bot typing', 'Thinking…');
+}
+
+// ── Receipt assignment UI ────────────────────────────────────────────────────
+function renderReceiptPanel(receiptData, sid) {
+  const assignments = {};  // item_index -> Set of payer IDs (null = me, int = member)
+  receiptData.items.forEach((_, i) => { assignments[i] = new Set(); });
+
+  const panel = document.createElement('div');
+  panel.className = 'receipt-panel';
+
+  const title = document.createElement('div');
+  title.className = 'receipt-panel-title';
+  title.textContent = '🧾 Who pays for each item?';
+  panel.appendChild(title);
+
+  const submitBtn = document.createElement('button');
+  submitBtn.className = 'receipt-submit';
+  submitBtn.textContent = 'Create Expenses';
+  submitBtn.disabled = true;
+
+  function refreshSubmit() {
+    const allDone = Object.values(assignments).every(s => s.size > 0);
+    submitBtn.disabled = !allDone;
+  }
+
+  receiptData.items.forEach((item, idx) => {
+    const itemDiv = document.createElement('div');
+    itemDiv.className = 'receipt-item';
+
+    const label = document.createElement('div');
+    label.className = 'item-label';
+    label.innerHTML = `<span class="item-name">${item.name}</span><span>$${item.price.toFixed(2)}</span>`;
+    itemDiv.appendChild(label);
+
+    const chips = document.createElement('div');
+    chips.className = 'payer-chips';
+
+    function makeChip(text, payerId) {
+      const btn = document.createElement('button');
+      btn.className = 'payer-chip';
+      btn.textContent = text;
+      btn.addEventListener('click', () => {
+        if (assignments[idx].has(payerId)) {
+          assignments[idx].delete(payerId);
+          btn.classList.remove('selected');
+        } else {
+          assignments[idx].add(payerId);
+          btn.classList.add('selected');
+        }
+        refreshSubmit();
+      });
+      return btn;
+    }
+
+    chips.appendChild(makeChip('Me', null));
+    receiptData.members.forEach(m => chips.appendChild(makeChip(m.name, m.id)));
+
+    itemDiv.appendChild(chips);
+    panel.appendChild(itemDiv);
+
+    if (idx < receiptData.items.length - 1) {
+      const hr = document.createElement('hr');
+      hr.className = 'receipt-divider';
+      panel.appendChild(hr);
+    }
+  });
+
+  submitBtn.addEventListener('click', async () => {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Creating…';
+    const assignmentList = Object.entries(assignments).map(([idx, payerSet]) => ({
+      item_index: parseInt(idx),
+      payer_ids: [...payerSet],
+    }));
+    try {
+      const res = await fetch(`${API}/chat/receipt/assign`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({session_id: sid, assignments: assignmentList}),
+      });
+      const data = await res.json();
+      panel.remove();
+      addMsg('bot', data.reply);
+    } catch(err) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Create Expenses';
+      addMsg('bot', 'Failed to create expenses — please try again.');
+    }
+  });
+
+  panel.appendChild(submitBtn);
+  document.getElementById('messages').appendChild(panel);
+  panel.scrollIntoView({behavior: 'smooth', block: 'end'});
 }
 
 // ── Models ───────────────────────────────────────────────────────────────────
@@ -325,7 +466,11 @@ async function sendImage(file) {
     const data = await res.json();
     saveSession(data.session_id);
     t.remove();
-    addMsg('bot', data.reply);
+    if (data.receipt_data) {
+      renderReceiptPanel(data.receipt_data, data.session_id);
+    } else {
+      addMsg('bot', data.reply);
+    }
   } catch(err) {
     t.remove();
     addMsg('bot', 'Could not process the image.');
