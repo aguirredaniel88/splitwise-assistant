@@ -158,11 +158,26 @@ async def receipt_assign(req: ReceiptAssignRequest):
 @router.get("/chat/models")
 async def get_models(session_id: str | None = None):
     current = "claude-sonnet-4-6"
+    available = []
+
     if session_id:
         s = _sessions.get(f"web:{session_id}")
         if s.llm_provider:
             current = s.llm_provider.name
-    return {"current": current, "available": sorted(AVAILABLE_MODELS)}
+
+        # Only show models for which user has API keys
+        for model_alias in AVAILABLE_MODELS:
+            resolved = resolve_model(model_alias)
+            if resolved:
+                provider_name, _ = resolved
+                if provider_name == "anthropic" and s.anthropic_api_key:
+                    available.append(model_alias)
+                elif provider_name == "openai" and s.openai_api_key:
+                    available.append(model_alias)
+    else:
+        available = sorted(AVAILABLE_MODELS)
+
+    return {"current": current, "available": sorted(set(available))}
 
 
 @router.post("/chat/model")
@@ -172,7 +187,20 @@ async def set_model(req: ModelRequest):
     if not resolved:
         return {"ok": False, "error": f"Unknown model '{req.model}'"}
     provider_name, model_id = resolved
-    session.llm_provider = make_provider(provider_name, model_id)
+
+    # Use session API keys instead of global settings
+    from .llm import make_provider_with_key
+    if provider_name == "anthropic":
+        if not session.anthropic_api_key:
+            return {"ok": False, "error": "Anthropic API key not configured for this session"}
+        session.llm_provider = make_provider_with_key(provider_name, model_id, session.anthropic_api_key)
+    elif provider_name == "openai":
+        if not session.openai_api_key:
+            return {"ok": False, "error": "OpenAI API key not configured for this session"}
+        session.llm_provider = make_provider_with_key(provider_name, model_id, session.openai_api_key)
+    else:
+        return {"ok": False, "error": f"Provider '{provider_name}' not supported"}
+
     session.history = []
     return {"ok": True, "model": model_id}
 
@@ -184,6 +212,7 @@ async def reset_chat(session_id: str):
 
 
 def _model_command(body: str, session) -> str:
+    from .llm import make_provider_with_key
     parts = body.strip().split(None, 1)
     current = session.llm_provider.name if session.llm_provider else "unknown"
     if len(parts) == 1:
@@ -193,7 +222,19 @@ def _model_command(body: str, session) -> str:
     if not resolved:
         return f"Unknown model '{alias}'. Available: {', '.join(sorted(AVAILABLE_MODELS))}"
     provider_name, model_id = resolved
-    session.llm_provider = make_provider(provider_name, model_id)
+
+    # Use session API keys
+    if provider_name == "anthropic":
+        if not session.anthropic_api_key:
+            return "⚠️ Anthropic API key not configured. Please reconnect with your keys."
+        session.llm_provider = make_provider_with_key(provider_name, model_id, session.anthropic_api_key)
+    elif provider_name == "openai":
+        if not session.openai_api_key:
+            return "⚠️ OpenAI API key not configured. Please reconnect with your keys."
+        session.llm_provider = make_provider_with_key(provider_name, model_id, session.openai_api_key)
+    else:
+        return f"⚠️ Provider '{provider_name}' not supported"
+
     session.history = []
     return f"Switched to {model_id}. Conversation history cleared."
 
