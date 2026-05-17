@@ -126,17 +126,22 @@ async def run_agent(session: Session, user_message: str) -> str:
 
         # Tool use round
         provider.append_assistant(session.history, response)
-        results = await _execute_tools(response.tool_calls, bridge, session)
+
+        # For Groq: use aggressive compression on tool results
+        is_groq = getattr(provider, "_slim_tools", False)
+        results = await _execute_tools(response.tool_calls, bridge, session, compress_for_groq=is_groq)
         provider.append_tool_results(session.history, results)
 
     return "Sorry, I couldn't complete that request. Please try again."
 
 
 _MAX_TOOL_RESULT_CHARS = 50000
+_MAX_TOOL_RESULT_CHARS_GROQ = 2000  # Groq needs much shorter results
 
-async def _execute_tools(tool_calls, bridge, session=None) -> list[tuple[str, str, bool]]:
+async def _execute_tools(tool_calls, bridge, session=None, compress_for_groq=False) -> list[tuple[str, str, bool]]:
     """Execute tools using provided bridge and auto-cache group data."""
     results = []
+    max_chars = _MAX_TOOL_RESULT_CHARS_GROQ if compress_for_groq else _MAX_TOOL_RESULT_CHARS
     for tc in tool_calls:
         logger.info("Calling tool %s with %s", tc.name, tc.input)
         try:
@@ -152,8 +157,8 @@ async def _execute_tools(tool_calls, bridge, session=None) -> list[tuple[str, st
             logger.exception("Tool %s failed", tc.name)
             content = f"Error: {exc}"
             is_error = True
-        if len(content) > _MAX_TOOL_RESULT_CHARS:
-            content = content[:_MAX_TOOL_RESULT_CHARS] + "\n…(truncated)"
+        if len(content) > max_chars:
+            content = content[:max_chars] + "\n…(truncated)"
         results.append((tc.id, content, is_error))
     return results
 
