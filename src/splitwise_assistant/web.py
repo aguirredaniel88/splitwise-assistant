@@ -49,6 +49,7 @@ class CredentialsRequest(BaseModel):
 async def set_credentials(req: CredentialsRequest):
     """Set Splitwise and LLM API credentials for a session."""
     try:
+        logger.info("Setting credentials for session %s", req.session_id)
         await _sessions.set_credentials(
             f"web:{req.session_id}",
             oauth_token=req.oauth_token,
@@ -58,10 +59,11 @@ async def set_credentials(req: CredentialsRequest):
         )
         return {"ok": True, "message": "Credentials validated successfully"}
     except ValueError as e:
+        logger.warning("Credential validation failed: %s", e)
         return {"ok": False, "error": str(e)}
     except Exception as e:
-        logger.exception("Error setting credentials")
-        return {"ok": False, "error": "Failed to validate credentials"}
+        logger.exception("Error setting credentials for session %s", req.session_id)
+        return {"ok": False, "error": f"Failed to validate credentials: {str(e)}"}
 
 
 @router.get("/credentials/status")
@@ -776,6 +778,12 @@ async function restoreCredentials() {
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 (async function init() {
+  // Ensure sessionId exists
+  if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    localStorage.setItem('sw_session', sessionId);
+  }
+
   loadModels();
 
   const restored = await restoreCredentials();
