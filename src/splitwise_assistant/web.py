@@ -449,8 +449,9 @@ _HTML = """<!DOCTYPE html>
   #send-btn { background: var(--accent); border-color: var(--accent); color: #fff;
               padding: 10px 18px; border-radius: 12px; font-weight: 600; }
   #send-btn:hover { background: var(--accent-h); border-color: var(--accent-h); }
-  #img-btn, #mic-btn { padding: 10px 12px; font-size: 1.1rem; border-radius: 12px; }
+  #img-btn, #mic-btn, #lang-btn { padding: 10px 12px; font-size: 1.1rem; border-radius: 12px; }
   #mic-btn.recording { background: #f47; border-color: #f47; color: #fff; animation: pulse 1.5s infinite; }
+  #lang-btn { font-size: 0.85rem; padding: 8px 10px; }
   @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.6; }
@@ -482,6 +483,7 @@ _HTML = """<!DOCTYPE html>
   <button id="img-btn" title="Upload a receipt">📷</button>
   <input type="file" id="file-input" accept="image/*">
   <button id="mic-btn" title="Voice input">🎤</button>
+  <button id="lang-btn" title="Voice language">🇺🇸</button>
   <textarea id="msg-input" rows="1" placeholder="Ask about your expenses…"></textarea>
   <button id="send-btn">Send</button>
 </div>
@@ -911,6 +913,26 @@ async function restoreCredentials() {
 // ── Voice Input ──────────────────────────────────────────────────────────────
 let recognition = null;
 let isRecording = false;
+let voiceLang = 'en-US';  // Default language
+
+// Auto-detect language from browser, fallback to saved preference
+const browserLang = navigator.language || navigator.userLanguage;
+if (browserLang.startsWith('es')) {
+  voiceLang = 'es-ES';
+} else if (localStorage.getItem('voice_lang')) {
+  voiceLang = localStorage.getItem('voice_lang');
+}
+
+function updateLangButton() {
+  const btn = document.getElementById('lang-btn');
+  if (voiceLang === 'es-ES') {
+    btn.textContent = '🇪🇸';
+    btn.title = 'Voice: Spanish';
+  } else {
+    btn.textContent = '🇺🇸';
+    btn.title = 'Voice: English';
+  }
+}
 
 function initVoiceInput() {
   // Check for browser support
@@ -918,24 +940,31 @@ function initVoiceInput() {
   if (!SpeechRecognition) {
     console.warn('Speech recognition not supported in this browser');
     document.getElementById('mic-btn').style.display = 'none';
+    document.getElementById('lang-btn').style.display = 'none';
     return;
   }
 
   recognition = new SpeechRecognition();
   recognition.continuous = false;
   recognition.interimResults = false;
-  recognition.lang = 'en-US';
+  recognition.lang = voiceLang;
+
+  updateLangButton();
 
   recognition.onstart = () => {
     isRecording = true;
     document.getElementById('mic-btn').classList.add('recording');
-    document.getElementById('msg-input').placeholder = 'Listening...';
+    const listening = voiceLang === 'es-ES' ? 'Escuchando...' : 'Listening...';
+    document.getElementById('msg-input').placeholder = listening;
   };
 
   recognition.onend = () => {
     isRecording = false;
     document.getElementById('mic-btn').classList.remove('recording');
-    document.getElementById('msg-input').placeholder = 'Ask about your expenses…';
+    const placeholder = voiceLang === 'es-ES'
+      ? 'Pregunta sobre tus gastos…'
+      : 'Ask about your expenses…';
+    document.getElementById('msg-input').placeholder = placeholder;
   };
 
   recognition.onresult = (event) => {
@@ -949,17 +978,42 @@ function initVoiceInput() {
     console.error('Speech recognition error:', event.error);
     isRecording = false;
     document.getElementById('mic-btn').classList.remove('recording');
-    document.getElementById('msg-input').placeholder = 'Ask about your expenses…';
+    const placeholder = voiceLang === 'es-ES'
+      ? 'Pregunta sobre tus gastos…'
+      : 'Ask about your expenses…';
+    document.getElementById('msg-input').placeholder = placeholder;
 
     if (event.error === 'not-allowed') {
-      addMsg('bot', '⚠️ Microphone access denied. Please allow microphone access in your browser settings.');
+      const msg = voiceLang === 'es-ES'
+        ? '⚠️ Acceso al micrófono denegado. Por favor, permite el acceso al micrófono en la configuración del navegador.'
+        : '⚠️ Microphone access denied. Please allow microphone access in your browser settings.';
+      addMsg('bot', msg);
     }
   };
 }
 
+// Language toggle button
+document.getElementById('lang-btn').addEventListener('click', () => {
+  voiceLang = voiceLang === 'en-US' ? 'es-ES' : 'en-US';
+  localStorage.setItem('voice_lang', voiceLang);
+  if (recognition) {
+    recognition.lang = voiceLang;
+  }
+  updateLangButton();
+
+  // Update placeholder
+  const placeholder = voiceLang === 'es-ES'
+    ? 'Pregunta sobre tus gastos…'
+    : 'Ask about your expenses…';
+  document.getElementById('msg-input').placeholder = placeholder;
+});
+
 document.getElementById('mic-btn').addEventListener('click', () => {
   if (!recognition) {
-    addMsg('bot', '⚠️ Voice input not supported in this browser. Try Chrome, Safari, or Edge.');
+    const msg = voiceLang === 'es-ES'
+      ? '⚠️ Entrada de voz no compatible con este navegador. Prueba Chrome, Safari o Edge.'
+      : '⚠️ Voice input not supported in this browser. Try Chrome, Safari, or Edge.';
+    addMsg('bot', msg);
     return;
   }
 
