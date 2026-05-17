@@ -313,20 +313,33 @@ _HTML = """<!DOCTYPE html>
   body { background: var(--bg); color: var(--text); font-family: var(--font);
          display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
 
-  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px;
+  header { display: flex; align-items: center; gap: 8px; padding: 12px 16px;
            background: var(--surface); border-bottom: 1px solid var(--border);
-           flex-shrink: 0; }
-  header h1 { font-size: 1.1rem; font-weight: 600; flex: 1; }
+           flex-shrink: 0; flex-wrap: wrap; }
+  header h1 { font-size: 1.1rem; font-weight: 600; flex: 1; min-width: 120px; }
   header h1 span { color: var(--accent); }
 
   select, button { font-family: var(--font); font-size: .85rem; cursor: pointer;
                    border: 1px solid var(--border); border-radius: 8px;
                    background: var(--surface2); color: var(--text); padding: 6px 12px;
-                   transition: background .15s; }
+                   transition: background .15s; white-space: nowrap; }
   select:hover, button:hover { background: var(--border); }
 
   #reset-btn { color: #f47; border-color: #f47; }
   #logout-btn { color: #f47; border-color: #f47; }
+
+  .btn-text-short { display: none; }
+
+  /* Mobile optimizations */
+  @media (max-width: 600px) {
+    header { gap: 6px; padding: 10px 12px; }
+    header h1 { font-size: 1rem; }
+    header h1 span { display: none; } /* Hide "Assistant" on mobile */
+    select, button { font-size: .8rem; padding: 5px 8px; }
+    #reset-btn, #logout-btn { padding: 5px 8px; }
+    .btn-text-full { display: none; }
+    .btn-text-short { display: inline; }
+  }
 
   #messages { flex: 1; overflow-y: auto; padding: 20px;
               display: flex; flex-direction: column; gap: 12px; }
@@ -475,8 +488,8 @@ _HTML = """<!DOCTYPE html>
 <header>
   <h1>Splitwise <span>Assistant</span></h1>
   <select id="model-select" title="Switch AI model"></select>
-  <button id="reset-btn" title="Start a new conversation">New chat</button>
-  <button id="logout-btn" title="Logout and clear all data">Logout</button>
+  <button id="reset-btn" title="Start a new conversation"><span class="btn-text-full">New chat</span><span class="btn-text-short">New</span></button>
+  <button id="logout-btn" title="Logout and clear all data"><span class="btn-text-full">Logout</span><span class="btn-text-short">🚪</span></button>
 </header>
 
 <div id="messages"></div>
