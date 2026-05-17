@@ -368,7 +368,12 @@ _HTML = """<!DOCTYPE html>
   #send-btn { background: var(--accent); border-color: var(--accent); color: #fff;
               padding: 10px 18px; border-radius: 12px; font-weight: 600; }
   #send-btn:hover { background: var(--accent-h); border-color: var(--accent-h); }
-  #img-btn { padding: 10px 12px; font-size: 1.1rem; border-radius: 12px; }
+  #img-btn, #mic-btn { padding: 10px 12px; font-size: 1.1rem; border-radius: 12px; }
+  #mic-btn.recording { background: #f47; border-color: #f47; color: #fff; animation: pulse 1.5s infinite; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
   #file-input { display: none; }
 
   .drop-overlay { position: fixed; inset: 0; background: rgba(92,110,248,.15);
@@ -395,6 +400,7 @@ _HTML = """<!DOCTYPE html>
 <div class="input-row">
   <button id="img-btn" title="Upload a receipt">📷</button>
   <input type="file" id="file-input" accept="image/*">
+  <button id="mic-btn" title="Voice input">🎤</button>
   <textarea id="msg-input" rows="1" placeholder="Ask about your expenses…"></textarea>
   <button id="send-btn">Send</button>
 </div>
@@ -776,6 +782,68 @@ async function restoreCredentials() {
   }
 }
 
+// ── Voice Input ──────────────────────────────────────────────────────────────
+let recognition = null;
+let isRecording = false;
+
+function initVoiceInput() {
+  // Check for browser support
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    console.warn('Speech recognition not supported in this browser');
+    document.getElementById('mic-btn').style.display = 'none';
+    return;
+  }
+
+  recognition = new SpeechRecognition();
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.lang = 'en-US';
+
+  recognition.onstart = () => {
+    isRecording = true;
+    document.getElementById('mic-btn').classList.add('recording');
+    document.getElementById('msg-input').placeholder = 'Listening...';
+  };
+
+  recognition.onend = () => {
+    isRecording = false;
+    document.getElementById('mic-btn').classList.remove('recording');
+    document.getElementById('msg-input').placeholder = 'Ask about your expenses…';
+  };
+
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    document.getElementById('msg-input').value = transcript;
+    // Auto-send after voice input
+    setTimeout(() => document.getElementById('send-btn').click(), 300);
+  };
+
+  recognition.onerror = (event) => {
+    console.error('Speech recognition error:', event.error);
+    isRecording = false;
+    document.getElementById('mic-btn').classList.remove('recording');
+    document.getElementById('msg-input').placeholder = 'Ask about your expenses…';
+
+    if (event.error === 'not-allowed') {
+      addMsg('bot', '⚠️ Microphone access denied. Please allow microphone access in your browser settings.');
+    }
+  };
+}
+
+document.getElementById('mic-btn').addEventListener('click', () => {
+  if (!recognition) {
+    addMsg('bot', '⚠️ Voice input not supported in this browser. Try Chrome, Safari, or Edge.');
+    return;
+  }
+
+  if (isRecording) {
+    recognition.stop();
+  } else {
+    recognition.start();
+  }
+});
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 (async function init() {
   // Ensure sessionId exists
@@ -785,6 +853,7 @@ async function restoreCredentials() {
   }
 
   loadModels();
+  initVoiceInput();
 
   const restored = await restoreCredentials();
   if (!restored) {
