@@ -644,6 +644,12 @@ function showCredentialsModal() {
     <div class="modal-content">
       <h2>Connect Your Accounts</h2>
       <p>Enter your API credentials to get started. Your keys are stored securely in your browser.</p>
+      <p style="font-size: 0.85rem; color: var(--text2); margin-top: 8px;">
+        <strong>Where to get keys:</strong><br>
+        • Anthropic: <a href="https://console.anthropic.com/account/keys" target="_blank" style="color: var(--accent);">console.anthropic.com</a><br>
+        • OpenAI: <a href="https://platform.openai.com/api-keys" target="_blank" style="color: var(--accent);">platform.openai.com</a><br>
+        • Splitwise: <a href="https://secure.splitwise.com/apps" target="_blank" style="color: var(--accent);">secure.splitwise.com/apps</a>
+      </p>
 
       <h3 style="margin-top: 20px; margin-bottom: 8px; font-size: 0.95rem;">LLM Provider (required)</h3>
       <label for="anthropic-key">Anthropic API Key</label>
@@ -655,13 +661,13 @@ function showCredentialsModal() {
       <input type="password" id="openai-key" placeholder="sk-...">
 
       <h3 style="margin-top: 24px; margin-bottom: 8px; font-size: 0.95rem;">Splitwise (required)</h3>
-      <label for="oauth-token">OAuth Access Token (recommended)</label>
-      <input type="password" id="oauth-token" placeholder="Enter your OAuth token">
+      <label for="api-key">Splitwise API Key (easiest)</label>
+      <input type="password" id="api-key" placeholder="Get from secure.splitwise.com/apps">
 
       <div class="divider">OR</div>
 
-      <label for="api-key">Splitwise API Key</label>
-      <input type="password" id="api-key" placeholder="Enter your API key">
+      <label for="oauth-token">OAuth Access Token (advanced)</label>
+      <input type="password" id="oauth-token" placeholder="Use OAuth setup script">
 
       <div class="error-msg" id="cred-error" style="display:none"></div>
 
