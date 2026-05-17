@@ -49,22 +49,41 @@ async def run_agent(session: Session, user_message: str) -> str:
             logger.exception("LLM call failed")
             session.history.pop()  # remove the user message we just appended
             err = str(exc)
-            if "credit balance" in err.lower() or "billing" in err.lower():
+
+            # Check for quota/credit issues
+            if "quota" in err.lower() or "insufficient_quota" in err.lower():
+                provider_name = "Anthropic" if "anthropic" in session.llm_provider.name.lower() else "OpenAI"
                 return (
-                    "Your Anthropic API credit is exhausted.\n"
-                    "Switch to a free model: /model llama  or  /model groq"
+                    f"⚠️ Your {provider_name} API credits are exhausted.\n\n"
+                    f"Please add credits to your {provider_name} account or switch to a different model.\n"
+                    f"Current model: {session.llm_provider.name}"
                 )
+
+            if "credit balance" in err.lower() or "billing" in err.lower():
+                provider_name = "Anthropic" if "anthropic" in session.llm_provider.name.lower() else "OpenAI"
+                return (
+                    f"⚠️ {provider_name} API billing issue detected.\n\n"
+                    f"Please check your {provider_name} account billing settings.\n"
+                    f"Current model: {session.llm_provider.name}"
+                )
+
             if "429" in err or "rate" in err.lower():
-                return "Rate limit reached. Please wait a moment and try again, or switch models with /model."
+                return (
+                    "⚠️ Rate limit reached. Please wait a moment and try again.\n"
+                    f"Current model: {session.llm_provider.name}"
+                )
+
             if "404" in err or "not found" in err.lower():
                 return (
-                    f"Model not available for your account: {session.llm_provider.name}\n"
-                    "Try /model llama (free) or /model claude."
+                    f"⚠️ Model not available: {session.llm_provider.name}\n"
+                    "Try switching to a different model."
                 )
+
             if "tool_use_failed" in err or "400" in err:
                 session.history = []
-                return "The AI had trouble processing that. I've reset the conversation — please try again."
-            return f"Something went wrong: {err[:120]}"
+                return "⚠️ The AI had trouble processing that. I've reset the conversation — please try again."
+
+            return f"⚠️ Error: {err[:200]}"
 
         if not response.has_tool_calls:
             provider.append_assistant(session.history, response)
