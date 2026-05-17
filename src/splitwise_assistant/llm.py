@@ -256,7 +256,7 @@ def make_provider_with_key(provider: str, model: str, api_key: str) -> LLMProvid
             api_key=api_key,
             base_url="https://api.groq.com/openai/v1",
             slim_tools=True,
-            max_history=10,
+            max_history=4,  # Groq has strict 12k token limit - keep history very short
         )
     raise ValueError(f"Unknown provider: {provider}")
 

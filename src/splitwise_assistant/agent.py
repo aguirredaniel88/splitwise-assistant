@@ -23,10 +23,16 @@ async def run_agent(session: Session, user_message: str) -> str:
     if not bridge:
         return "⚠️ Splitwise not configured. Please set up your credentials."
 
-    # Inject whiteboard context if available
+    # Inject whiteboard context if available (limited for Groq due to token constraints)
     whiteboard_context = ""
     if session.whiteboard:
-        whiteboard_context = f"\n\n**Your Whiteboard (cached group info):**\n```json\n{_serialize(session.whiteboard)}\n```"
+        is_groq = "groq" in provider.name.lower() or getattr(provider, "_slim_tools", False)
+        if is_groq:
+            # For Groq: only include group names, not full details (save tokens)
+            group_names = {gid: data.get("group_name", "Unknown") for gid, data in session.whiteboard.items()}
+            whiteboard_context = f"\n\n**Cached groups:** {', '.join(group_names.values())}"
+        else:
+            whiteboard_context = f"\n\n**Your Whiteboard (cached group info):**\n```json\n{_serialize(session.whiteboard)}\n```"
 
     session.history.append({"role": "user", "content": user_message + whiteboard_context})
 
@@ -65,6 +71,15 @@ async def run_agent(session: Session, user_message: str) -> str:
                     f"⚠️ {provider_name} API billing issue detected.\n\n"
                     f"Please check your {provider_name} account billing settings.\n"
                     f"Current model: {session.llm_provider.name}"
+                )
+
+            if "413" in err or ("tokens per minute" in err.lower() and "request too large" in err.lower()):
+                # Groq token limit exceeded - clear history and suggest reset
+                session.history = []
+                return (
+                    "⚠️ Request too large for Groq's free tier (12k token limit).\n\n"
+                    "Groq works best for short conversations. Your history has been cleared.\n"
+                    "Try asking your question again, or consider using Claude/GPT for longer chats."
                 )
 
             if "429" in err or "rate" in err.lower():
