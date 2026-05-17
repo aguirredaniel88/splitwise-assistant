@@ -46,6 +46,18 @@ async def run_agent(session: Session, user_message: str) -> str:
         slim = getattr(provider, "_slim_tools", False)
         tools = bridge.to_openai_tools(slim=slim)
 
+        # For Groq: filter to only essential tools to save tokens
+        if slim:
+            essential_tools = {
+                "create_expense",
+                "get_groups",
+                "get_group",
+                "get_current_user",
+                "get_friends"
+            }
+            tools = [t for t in tools if t.get("function", {}).get("name") in essential_tools]
+            logger.info(f"Filtered to {len(tools)} essential tools for Groq")
+
     for _ in range(10):  # safety cap on tool-call rounds
         try:
             response = provider.chat(session.history, tools)
