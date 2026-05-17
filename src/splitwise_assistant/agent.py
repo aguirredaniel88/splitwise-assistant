@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
 
 async def run_agent(session: Session, user_message: str) -> str:
     """Run one conversation turn through the LLM + MCP agentic loop."""
+    # Check if LLM provider is set
+    if not session.llm_provider:
+        return "⚠️ Please set up your API credentials first."
+
     provider: LLMProvider = session.llm_provider
 
     # Get bridge from session

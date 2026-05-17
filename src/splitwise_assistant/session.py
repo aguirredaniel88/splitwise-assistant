@@ -47,11 +47,10 @@ class SessionManager:
         self._ttl = ttl_minutes * 60
 
     def get(self, phone: str) -> Session:
-        from .llm import default_provider
         # Note: _cleanup is now async, called separately in async contexts
         if phone not in self._sessions:
             session = Session(phone=phone)
-            session.llm_provider = default_provider()
+            # Don't set llm_provider here - it will be set when credentials are provided
             self._sessions[phone] = session
         session = self._sessions[phone]
         session.last_active = time.time()
