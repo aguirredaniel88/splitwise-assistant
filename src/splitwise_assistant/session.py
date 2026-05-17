@@ -37,6 +37,8 @@ class Session:
     openai_api_key: Optional[str] = field(default=None, repr=False)
     # Per-session MCP bridge
     mcp_bridge: Optional[Any] = field(default=None, repr=False)
+    # Whiteboard: cached group info to avoid repeated API calls
+    whiteboard: dict[str, Any] = field(default_factory=dict)
 
 
 class SessionManager:

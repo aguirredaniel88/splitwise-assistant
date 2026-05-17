@@ -19,7 +19,12 @@ async def run_agent(session: Session, user_message: str) -> str:
     if not bridge:
         return "⚠️ Splitwise not configured. Please set up your credentials."
 
-    session.history.append({"role": "user", "content": user_message})
+    # Inject whiteboard context if available
+    whiteboard_context = ""
+    if session.whiteboard:
+        whiteboard_context = f"\n\n**Your Whiteboard (cached group info):**\n```json\n{_serialize(session.whiteboard)}\n```"
+
+    session.history.append({"role": "user", "content": user_message + whiteboard_context})
 
     max_hist = getattr(provider, "max_history", 20)
     if len(session.history) > max_hist:
@@ -71,7 +76,7 @@ async def run_agent(session: Session, user_message: str) -> str:
 
         # Tool use round
         provider.append_assistant(session.history, response)
-        results = await _execute_tools(response.tool_calls, bridge)
+        results = await _execute_tools(response.tool_calls, bridge, session)
         provider.append_tool_results(session.history, results)
 
     return "Sorry, I couldn't complete that request. Please try again."
@@ -79,8 +84,8 @@ async def run_agent(session: Session, user_message: str) -> str:
 
 _MAX_TOOL_RESULT_CHARS = 50000
 
-async def _execute_tools(tool_calls, bridge) -> list[tuple[str, str, bool]]:
-    """Execute tools using provided bridge."""
+async def _execute_tools(tool_calls, bridge, session=None) -> list[tuple[str, str, bool]]:
+    """Execute tools using provided bridge and auto-cache group data."""
     results = []
     for tc in tool_calls:
         logger.info("Calling tool %s with %s", tc.name, tc.input)
@@ -88,6 +93,11 @@ async def _execute_tools(tool_calls, bridge) -> list[tuple[str, str, bool]]:
             raw = await bridge.call_tool(tc.name, tc.input)
             content = _serialize(raw)
             is_error = False
+
+            # Auto-cache group data in whiteboard
+            if session and not is_error:
+                _cache_group_data(tc.name, tc.input, raw, session)
+
         except Exception as exc:
             logger.exception("Tool %s failed", tc.name)
             content = f"Error: {exc}"
@@ -96,6 +106,78 @@ async def _execute_tools(tool_calls, bridge) -> list[tuple[str, str, bool]]:
             content = content[:_MAX_TOOL_RESULT_CHARS] + "\n…(truncated)"
         results.append((tc.id, content, is_error))
     return results
+
+
+def _cache_group_data(tool_name: str, tool_input: dict, raw_result: Any, session: Session) -> None:
+    """Cache group information in the whiteboard for future use."""
+    try:
+        if tool_name in ("get_group", "create_group"):
+            # Parse the result
+            import json
+            data = json.loads(raw_result) if isinstance(raw_result, str) else raw_result
+
+            # Extract group data
+            if isinstance(data, dict):
+                group = data.get("group", data)
+                if isinstance(group, dict) and "id" in group:
+                    group_id = str(group["id"])
+                    group_name = group.get("name", "Unknown")
+
+                    # Extract members with their info
+                    members = []
+                    default_percentages = {}
+                    for member in group.get("members", []):
+                        user_id = member.get("user_id") or member.get("id")
+                        if user_id:
+                            first = member.get("first_name", "")
+                            last = member.get("last_name", "")
+                            name = f"{first} {last}".strip() or member.get("email", "Unknown")
+                            members.append({
+                                "user_id": user_id,
+                                "name": name,
+                                "email": member.get("email")
+                            })
+
+                            # Get default balance/percentage if available
+                            balance = member.get("balance", [])
+                            if balance and isinstance(balance, list):
+                                for bal in balance:
+                                    amount = bal.get("amount")
+                                    if amount:
+                                        default_percentages[str(user_id)] = float(amount)
+
+                    # Cache in whiteboard
+                    session.whiteboard[group_id] = {
+                        "group_name": group_name,
+                        "members": members,
+                        "default_percentages": default_percentages,
+                        "simplify_by_default": group.get("simplify_by_default", True)
+                    }
+                    logger.info("Cached group %s (%s) in whiteboard with %d members",
+                               group_id, group_name, len(members))
+
+        elif tool_name == "get_groups":
+            # Cache all groups
+            import json
+            data = json.loads(raw_result) if isinstance(raw_result, str) else raw_result
+            groups_list = data.get("groups", []) if isinstance(data, dict) else []
+
+            for group in groups_list:
+                if isinstance(group, dict) and "id" in group:
+                    group_id = str(group["id"])
+                    group_name = group.get("name", "Unknown")
+
+                    # Basic info only (no members detail unless get_group is called)
+                    if group_id not in session.whiteboard:
+                        session.whiteboard[group_id] = {
+                            "group_name": group_name,
+                            "members": [],  # Will be populated when get_group is called
+                            "default_percentages": {},
+                            "simplify_by_default": group.get("simplify_by_default", True)
+                        }
+
+    except Exception as e:
+        logger.warning("Failed to cache group data: %s", e)
 
 
 # Fields that add bulk but are useless to the LLM

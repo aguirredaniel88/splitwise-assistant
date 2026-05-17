@@ -43,6 +43,11 @@ class CredentialsRequest(BaseModel):
     openai_api_key: str | None = None
 
 
+class WhiteboardRequest(BaseModel):
+    session_id: str
+    whiteboard: dict
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/credentials")
@@ -86,6 +91,29 @@ async def credentials_status(session_id: str):
         "ready": has_bridge,
         "tools_available": tools_count
     }
+
+
+@router.get("/whiteboard")
+async def get_whiteboard(session_id: str):
+    """Get the whiteboard (cached group data) for a session."""
+    session = _sessions.get(f"web:{session_id}")
+    return {"whiteboard": session.whiteboard}
+
+
+@router.post("/whiteboard")
+async def set_whiteboard(req: WhiteboardRequest):
+    """Set the whiteboard (restore from localStorage)."""
+    session = _sessions.get(f"web:{req.session_id}")
+    session.whiteboard = req.whiteboard
+    return {"ok": True}
+
+
+@router.delete("/whiteboard")
+async def clear_whiteboard(session_id: str):
+    """Clear the whiteboard cache."""
+    session = _sessions.get(f"web:{session_id}")
+    session.whiteboard = {}
+    return {"ok": True}
 
 
 @router.post("/chat")
@@ -593,6 +621,38 @@ document.getElementById('model-select').addEventListener('change', async e => {
   else addMsg('bot', data.error || 'Could not switch model.');
 });
 
+// ── Whiteboard (localStorage cache for groups) ──────────────────────────────
+async function syncWhiteboard() {
+  try {
+    // Get server whiteboard
+    const res = await fetch(`${API}/whiteboard?session_id=${sessionId}`);
+    const data = await res.json();
+
+    if (data.whiteboard && Object.keys(data.whiteboard).length > 0) {
+      // Save to localStorage
+      localStorage.setItem('sw_whiteboard', JSON.stringify(data.whiteboard));
+    }
+  } catch (err) {
+    console.error('Failed to sync whiteboard:', err);
+  }
+}
+
+async function restoreWhiteboard() {
+  const stored = localStorage.getItem('sw_whiteboard');
+  if (!stored) return;
+
+  try {
+    const whiteboard = JSON.parse(stored);
+    await fetch(`${API}/whiteboard`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({session_id: sessionId, whiteboard})
+    });
+  } catch (err) {
+    console.error('Failed to restore whiteboard:', err);
+  }
+}
+
 // ── Send text ────────────────────────────────────────────────────────────────
 async function sendText(text) {
   if (!text.trim()) return;
@@ -608,6 +668,9 @@ async function sendText(text) {
     saveSession(data.session_id);
     t.remove();
     addMsg('bot', data.reply);
+
+    // Sync whiteboard after each chat (might have cached new group data)
+    await syncWhiteboard();
   } catch(err) {
     t.remove();
     addMsg('bot', 'Network error — please try again.');
@@ -900,6 +963,8 @@ document.getElementById('mic-btn').addEventListener('click', () => {
   if (!restored) {
     showCredentialsModal();
   } else {
+    // Restore whiteboard cache from localStorage
+    await restoreWhiteboard();
     addMsg('bot', 'Hi! Ask me anything about your Splitwise expenses, or drop a receipt photo.');
   }
 })();
