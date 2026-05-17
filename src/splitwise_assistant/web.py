@@ -326,6 +326,7 @@ _HTML = """<!DOCTYPE html>
   select:hover, button:hover { background: var(--border); }
 
   #reset-btn { color: #f47; border-color: #f47; }
+  #logout-btn { color: #f47; border-color: #f47; }
 
   #messages { flex: 1; overflow-y: auto; padding: 20px;
               display: flex; flex-direction: column; gap: 12px; }
@@ -475,6 +476,7 @@ _HTML = """<!DOCTYPE html>
   <h1>Splitwise <span>Assistant</span></h1>
   <select id="model-select" title="Switch AI model"></select>
   <button id="reset-btn" title="Start a new conversation">New chat</button>
+  <button id="logout-btn" title="Logout and clear all data">Logout</button>
 </header>
 
 <div id="messages"></div>
@@ -759,6 +761,41 @@ document.getElementById('reset-btn').addEventListener('click', async () => {
   document.getElementById('messages').innerHTML = '';
   addMsg('bot', 'New conversation started. How can I help you?');
   await loadModels();
+});
+
+// ── Logout ───────────────────────────────────────────────────────────────────
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  if (!confirm('Are you sure you want to logout? This will clear all your stored credentials and data.')) {
+    return;
+  }
+
+  // Clear server-side session
+  if (sessionId) {
+    await fetch(`${API}/chat?session_id=${sessionId}`, {method: 'DELETE'}).catch(()=>{});
+    await fetch(`${API}/whiteboard?session_id=${sessionId}`, {method: 'DELETE'}).catch(()=>{});
+  }
+
+  // Clear all localStorage data
+  localStorage.removeItem('sw_session');
+  localStorage.removeItem('sw_creds');
+  localStorage.removeItem('sw_whiteboard');
+  localStorage.removeItem('voice_lang');
+
+  // Clear UI
+  document.getElementById('messages').innerHTML = '';
+
+  // Generate new session
+  sessionId = crypto.randomUUID();
+  localStorage.setItem('sw_session', sessionId);
+
+  // Reset to defaults
+  voiceLang = 'en-US';
+  updateLangButton();
+  document.getElementById('msg-input').placeholder = 'Ask about your expenses…';
+
+  // Show credential modal again
+  addMsg('bot', 'Logged out successfully. Please reconnect to continue.');
+  showCredentialsModal();
 });
 
 // ── Credentials ──────────────────────────────────────────────────────────────
