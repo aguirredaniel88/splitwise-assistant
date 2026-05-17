@@ -35,7 +35,51 @@ class ReceiptAssignRequest(BaseModel):
     assignments: list[dict]  # [{"item_index": int, "payer_ids": [int|null]}]
 
 
+class CredentialsRequest(BaseModel):
+    session_id: str
+    oauth_token: str | None = None
+    api_key: str | None = None
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
+@router.post("/credentials")
+async def set_credentials(req: CredentialsRequest):
+    """Set Splitwise credentials for a session."""
+    try:
+        await _sessions.set_credentials(
+            f"web:{req.session_id}",
+            oauth_token=req.oauth_token,
+            api_key=req.api_key
+        )
+        return {"ok": True, "message": "Credentials validated successfully"}
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        logger.exception("Error setting credentials")
+        return {"ok": False, "error": "Failed to validate credentials"}
+
+
+@router.get("/credentials/status")
+async def credentials_status(session_id: str):
+    """Check if credentials are configured and bridge is ready."""
+    session = _sessions.get(f"web:{session_id}")
+    has_creds = bool(session.splitwise_oauth_token or session.splitwise_api_key)
+    has_bridge = session.mcp_bridge is not None
+
+    tools_count = 0
+    if has_bridge:
+        try:
+            tools_count = len(await session.mcp_bridge.list_tools())
+        except:
+            pass
+
+    return {
+        "configured": has_creds,
+        "ready": has_bridge,
+        "tools_available": tools_count
+    }
+
 
 @router.post("/chat")
 async def chat(req: ChatRequest):
@@ -43,8 +87,16 @@ async def chat(req: ChatRequest):
     session = _sessions.get(f"web:{session_id}")
     body = req.message.strip()
 
+    # Check credentials first
+    if not session.mcp_bridge:
+        return {
+            "reply": "⚠️ Please set up your Splitwise credentials first.",
+            "session_id": session_id,
+            "needs_credentials": True
+        }
+
     if body.lower() in ("reset", "/reset", "start over"):
-        _sessions.reset(f"web:{session_id}")
+        await _sessions.reset(f"web:{session_id}")
         return {"reply": "Conversation reset. How can I help you?", "session_id": session_id}
 
     if body.lower().startswith("/model"):
@@ -120,7 +172,7 @@ async def set_model(req: ModelRequest):
 
 @router.delete("/chat")
 async def reset_chat(session_id: str):
-    _sessions.reset(f"web:{session_id}")
+    await _sessions.reset(f"web:{session_id}")
     return {"ok": True}
 
 
@@ -224,6 +276,79 @@ _HTML = """<!DOCTYPE html>
                     font-weight: 600; font-size: .9rem; margin-top: 14px; }
   .receipt-submit:hover:not(:disabled) { background: var(--accent-h); border-color: var(--accent-h); }
   .receipt-submit:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* ── Credentials modal ─────────────────────────────────────────────────── */
+  .credentials-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .modal-content {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    max-width: 500px;
+    width: 90%;
+  }
+
+  .modal-content h2 {
+    margin-bottom: 16px;
+    color: var(--accent);
+  }
+
+  .modal-content p {
+    margin-bottom: 12px;
+    color: var(--text2);
+    line-height: 1.5;
+    font-size: .9rem;
+  }
+
+  .modal-content label {
+    display: block;
+    margin: 16px 0 6px;
+    font-size: 0.9rem;
+    font-weight: 500;
+  }
+
+  .modal-content input[type="text"],
+  .modal-content input[type="password"] {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 0.95rem;
+  }
+
+  .modal-content .divider {
+    text-align: center;
+    margin: 16px 0;
+    color: var(--text2);
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 20px;
+  }
+
+  .modal-actions button {
+    flex: 1;
+  }
+
+  .error-msg {
+    color: #f47;
+    font-size: 0.85rem;
+    margin-top: 8px;
+  }
 
   .input-row { display: flex; gap: 8px; padding: 14px 20px;
                background: var(--surface); border-top: 1px solid var(--border);
@@ -505,9 +630,124 @@ document.getElementById('reset-btn').addEventListener('click', async () => {
   await loadModels();
 });
 
+// ── Credentials ──────────────────────────────────────────────────────────────
+function showCredentialsModal() {
+  const modal = document.createElement('div');
+  modal.className = 'credentials-modal';
+  modal.id = 'creds-modal';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <h2>Connect to Splitwise</h2>
+      <p>Enter your Splitwise API credentials to get started.</p>
+
+      <label for="oauth-token">OAuth Access Token (recommended)</label>
+      <input type="password" id="oauth-token" placeholder="Enter your OAuth token">
+
+      <div class="divider">OR</div>
+
+      <label for="api-key">API Key</label>
+      <input type="password" id="api-key" placeholder="Enter your API key">
+
+      <div class="error-msg" id="cred-error" style="display:none"></div>
+
+      <div class="modal-actions">
+        <button id="save-creds" style="background:var(--accent); border-color:var(--accent); color:#fff">
+          Connect
+        </button>
+        <button id="learn-more" onclick="window.open('https://secure.splitwise.com/apps', '_blank')">
+          Get Credentials
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  document.getElementById('save-creds').onclick = saveCredentials;
+}
+
+async function saveCredentials() {
+  const oauthToken = document.getElementById('oauth-token').value.trim();
+  const apiKey = document.getElementById('api-key').value.trim();
+  const errorDiv = document.getElementById('cred-error');
+
+  if (!oauthToken && !apiKey) {
+    errorDiv.textContent = 'Please provide OAuth token or API key';
+    errorDiv.style.display = 'block';
+    return;
+  }
+
+  const btn = document.getElementById('save-creds');
+  btn.disabled = true;
+  btn.textContent = 'Connecting...';
+
+  try {
+    const res = await fetch(`${API}/credentials`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        session_id: sessionId,
+        oauth_token: oauthToken || null,
+        api_key: apiKey || null
+      })
+    });
+
+    const data = await res.json();
+
+    if (data.ok) {
+      // Store credentials in localStorage for persistence
+      localStorage.setItem('sw_creds', JSON.stringify({
+        oauth_token: oauthToken || null,
+        api_key: apiKey || null
+      }));
+
+      document.getElementById('creds-modal').remove();
+      addMsg('bot', '✅ Connected to Splitwise! How can I help you?');
+    } else {
+      errorDiv.textContent = data.error || 'Failed to connect';
+      errorDiv.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Connect';
+    }
+  } catch (err) {
+    errorDiv.textContent = 'Network error - please try again';
+    errorDiv.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Connect';
+  }
+}
+
+async function restoreCredentials() {
+  const stored = localStorage.getItem('sw_creds');
+  if (!stored) return false;
+
+  try {
+    const creds = JSON.parse(stored);
+    const res = await fetch(`${API}/credentials`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        session_id: sessionId,
+        ...creds
+      })
+    });
+    const data = await res.json();
+    return data.ok;
+  } catch {
+    return false;
+  }
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
-loadModels();
-addMsg('bot', 'Hi! Ask me anything about your Splitwise expenses, or drop a receipt photo to split it.');
+(async function init() {
+  loadModels();
+
+  const restored = await restoreCredentials();
+  if (!restored) {
+    showCredentialsModal();
+  } else {
+    addMsg('bot', 'Hi! Ask me anything about your Splitwise expenses, or drop a receipt photo.');
+  }
+})();
 </script>
 </body>
 </html>"""

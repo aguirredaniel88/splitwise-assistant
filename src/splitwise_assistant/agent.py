@@ -5,7 +5,6 @@ import logging
 from typing import Any
 
 from .llm import LLMProvider
-from .mcp_bridge import bridge
 from .session import Session
 
 logger = logging.getLogger(__name__)
@@ -14,6 +13,11 @@ logger = logging.getLogger(__name__)
 async def run_agent(session: Session, user_message: str) -> str:
     """Run one conversation turn through the LLM + MCP agentic loop."""
     provider: LLMProvider = session.llm_provider
+
+    # Get bridge from session
+    bridge = session.mcp_bridge
+    if not bridge:
+        return "⚠️ Splitwise not configured. Please set up your credentials."
 
     session.history.append({"role": "user", "content": user_message})
 
@@ -67,7 +71,7 @@ async def run_agent(session: Session, user_message: str) -> str:
 
         # Tool use round
         provider.append_assistant(session.history, response)
-        results = await _execute_tools(response.tool_calls)
+        results = await _execute_tools(response.tool_calls, bridge)
         provider.append_tool_results(session.history, results)
 
     return "Sorry, I couldn't complete that request. Please try again."
@@ -75,7 +79,8 @@ async def run_agent(session: Session, user_message: str) -> str:
 
 _MAX_TOOL_RESULT_CHARS = 50000
 
-async def _execute_tools(tool_calls) -> list[tuple[str, str, bool]]:
+async def _execute_tools(tool_calls, bridge) -> list[tuple[str, str, bool]]:
+    """Execute tools using provided bridge."""
     results = []
     for tc in tool_calls:
         logger.info("Calling tool %s with %s", tc.name, tc.input)

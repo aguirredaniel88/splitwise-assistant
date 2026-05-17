@@ -29,9 +29,14 @@ async def whatsapp_webhook(
     session = sessions.get(phone)
     body = Body.strip()
 
+    # Initialize session with global bridge if not already set
+    if not session.mcp_bridge:
+        from .main import _global_bridge
+        session.mcp_bridge = _global_bridge
+
     # ── Built-in commands ────────────────────────────────────────────────────
     if body.lower() in ("/reset", "reset", "start over"):
-        sessions.reset(phone)
+        await sessions.reset(phone)
         return _twiml_response("Conversation reset. How can I help you?")
 
     if body.lower() in ("/help", "help", "ayuda", "commands"):

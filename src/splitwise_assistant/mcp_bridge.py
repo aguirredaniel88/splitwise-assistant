@@ -1,5 +1,6 @@
 """In-process FastMCP client bridge to the splitwise-mcp server."""
 
+import asyncio
 import logging
 import os
 from typing import Any
@@ -10,30 +11,69 @@ from .config import settings
 
 logger = logging.getLogger(__name__)
 
+# Global lock for environment variable manipulation
+_env_lock = asyncio.Lock()
+
 
 class MCPBridge:
     """Connects to the splitwise-mcp server in-process (no subprocess needed)."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        oauth_access_token: str | None = None,
+        api_key: str | None = None
+    ) -> None:
+        self._oauth_access_token = oauth_access_token
+        self._api_key = api_key
         self._client: Client | None = None
         self._tools_cache: list | None = None
 
     async def startup(self) -> None:
-        # Inject Splitwise credentials into the process env before the MCP
-        # server's lifespan reads them via SplitwiseConfig.from_env().
-        if settings.splitwise_oauth_access_token:
-            os.environ["SPLITWISE_OAUTH_ACCESS_TOKEN"] = settings.splitwise_oauth_access_token
-        if settings.splitwise_api_key:
-            os.environ["SPLITWISE_API_KEY"] = settings.splitwise_api_key
+        """Initialize MCP client with instance-specific credentials.
 
+        Uses environment variable manipulation with locking to allow per-session
+        credentials without modifying the external splitwise-mcp package.
+        """
         from splitwise_mcp_server.server import create_server
-        mcp_server = create_server()
 
-        # Client accepts a FastMCP instance directly — runs entirely in-process.
-        self._client = Client(mcp_server)
-        await self._client.__aenter__()
-        self._tools_cache = await self._client.list_tools()
-        logger.info("MCPBridge connected (in-process) — %d tools available", len(self._tools_cache))
+        # Thread-safe environment variable manipulation
+        async with _env_lock:
+            # Save original environment variables
+            original_oauth_token = os.environ.get("SPLITWISE_OAUTH_ACCESS_TOKEN")
+            original_api_key = os.environ.get("SPLITWISE_API_KEY")
+
+            try:
+                # Temporarily set credentials in environment
+                if self._oauth_access_token:
+                    os.environ["SPLITWISE_OAUTH_ACCESS_TOKEN"] = self._oauth_access_token
+                elif "SPLITWISE_OAUTH_ACCESS_TOKEN" in os.environ:
+                    del os.environ["SPLITWISE_OAUTH_ACCESS_TOKEN"]
+
+                if self._api_key:
+                    os.environ["SPLITWISE_API_KEY"] = self._api_key
+                elif "SPLITWISE_API_KEY" in os.environ:
+                    del os.environ["SPLITWISE_API_KEY"]
+
+                # Create MCP server (it will read from modified environment)
+                mcp_server = create_server()
+
+                # Client accepts a FastMCP instance directly — runs entirely in-process.
+                self._client = Client(mcp_server)
+                await self._client.__aenter__()
+                self._tools_cache = await self._client.list_tools()
+                logger.info("MCPBridge connected (in-process) — %d tools available", len(self._tools_cache))
+
+            finally:
+                # Restore original environment variables
+                if original_oauth_token is not None:
+                    os.environ["SPLITWISE_OAUTH_ACCESS_TOKEN"] = original_oauth_token
+                elif "SPLITWISE_OAUTH_ACCESS_TOKEN" in os.environ:
+                    del os.environ["SPLITWISE_OAUTH_ACCESS_TOKEN"]
+
+                if original_api_key is not None:
+                    os.environ["SPLITWISE_API_KEY"] = original_api_key
+                elif "SPLITWISE_API_KEY" in os.environ:
+                    del os.environ["SPLITWISE_API_KEY"]
 
     async def shutdown(self) -> None:
         if self._client:
@@ -104,5 +144,20 @@ def _short_desc(desc: str | None, slim: bool) -> str:
     return desc.split(".")[0].strip()[:120]
 
 
-# Singleton used across the app
-bridge = MCPBridge()
+def create_bridge(
+    oauth_access_token: str | None = None,
+    api_key: str | None = None
+) -> MCPBridge:
+    """Factory to create MCPBridge with specific credentials.
+
+    Args:
+        oauth_access_token: Optional Splitwise OAuth access token
+        api_key: Optional Splitwise API key
+
+    Returns:
+        MCPBridge instance with the provided credentials
+    """
+    return MCPBridge(
+        oauth_access_token=oauth_access_token,
+        api_key=api_key
+    )

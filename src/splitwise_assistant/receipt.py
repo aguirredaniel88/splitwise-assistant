@@ -10,7 +10,6 @@ import httpx
 
 from .agent import parse_with_haiku
 from .config import settings
-from .mcp_bridge import bridge
 from .session import Session, ReceiptItem
 
 logger = logging.getLogger(__name__)
@@ -38,6 +37,10 @@ async def _start_flow(image_b64: str, media_type: str, session: Session) -> str:
     if not items:
         return "I couldn't read any items from the receipt. Please try a clearer photo."
 
+    # Use session bridge
+    bridge = session.mcp_bridge
+    if not bridge:
+        return "⚠️ Splitwise not configured. Please set up your credentials first."
 
     session.receipt_items = [ReceiptItem(name=i["name"], price=float(i["price"])) for i in items]
     session.current_item_index = 0
@@ -45,7 +48,7 @@ async def _start_flow(image_b64: str, media_type: str, session: Session) -> str:
 
     # Pre-fetch friends for name resolution
     try:
-        raw = await bridge.call_tool("get-friends", {})
+        raw = await bridge.call_tool("get_friends", {})
         friends_data = json.loads(raw) if isinstance(raw, str) else raw
         if isinstance(friends_data, dict):
             friends_data = friends_data.get("friends", [])
@@ -182,9 +185,13 @@ Rules:
 
 async def _create_expenses(session: Session) -> str:
     """Create Splitwise expenses for all assigned receipt items."""
+    bridge = session.mcp_bridge
+    if not bridge:
+        return "⚠️ Splitwise not configured."
+
     created: list[str] = []
     errors: list[str] = []
-    current_user_id = await _get_current_user_id()
+    current_user_id = await _get_current_user_id(bridge)
 
     for item in session.receipt_items:
         if not item.payers:
@@ -210,7 +217,7 @@ async def _create_expenses(session: Session) -> str:
             if users:
                 args["users"] = users
 
-            await bridge.call_tool("create-expense", args)
+            await bridge.call_tool("create_expense", args)
             created.append(item.name)
         except Exception as exc:
             logger.exception("Failed to create expense for %s", item.name)
@@ -293,9 +300,10 @@ async def _extract_items(image_b64: str, media_type: str) -> list[dict]:
         return []
 
 
-async def _get_current_user_id() -> Optional[int]:
+async def _get_current_user_id(bridge) -> Optional[int]:
+    """Get current user ID using provided bridge."""
     try:
-        raw = await bridge.call_tool("get-current-user", {})
+        raw = await bridge.call_tool("get_current_user", {})
         data = json.loads(raw) if isinstance(raw, str) else raw
         if isinstance(data, dict):
             user = data.get("user") or data
