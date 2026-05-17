@@ -35,6 +35,7 @@ class Session:
     # Per-user LLM API keys (not logged for security)
     anthropic_api_key: Optional[str] = field(default=None, repr=False)
     openai_api_key: Optional[str] = field(default=None, repr=False)
+    groq_api_key: Optional[str] = field(default=None, repr=False)
     # Per-session MCP bridge
     mcp_bridge: Optional[Any] = field(default=None, repr=False)
     # Whiteboard: cached group info to avoid repeated API calls
@@ -62,7 +63,8 @@ class SessionManager:
         oauth_token: str | None = None,
         api_key: str | None = None,
         anthropic_api_key: str | None = None,
-        openai_api_key: str | None = None
+        openai_api_key: str | None = None,
+        groq_api_key: str | None = None
     ) -> bool:
         """Set Splitwise and LLM credentials for a session.
 
@@ -72,6 +74,7 @@ class SessionManager:
             api_key: Optional Splitwise API key
             anthropic_api_key: Optional Anthropic API key
             openai_api_key: Optional OpenAI API key
+            groq_api_key: Optional Groq API key (free)
 
         Returns:
             True if credentials were validated and bridge initialized successfully
@@ -81,12 +84,12 @@ class SessionManager:
         """
         # Validate at least one Splitwise credential and one LLM key provided
         has_splitwise = bool(oauth_token or api_key)
-        has_llm = bool(anthropic_api_key or openai_api_key)
+        has_llm = bool(anthropic_api_key or openai_api_key or groq_api_key)
 
         if not has_splitwise:
             raise ValueError("Must provide Splitwise oauth_token or api_key")
         if not has_llm:
-            raise ValueError("Must provide Anthropic or OpenAI API key")
+            raise ValueError("Must provide Anthropic, OpenAI, or Groq API key")
 
         session = self.get(phone)
 
@@ -100,10 +103,13 @@ class SessionManager:
         session.splitwise_api_key = api_key
         session.anthropic_api_key = anthropic_api_key
         session.openai_api_key = openai_api_key
+        session.groq_api_key = groq_api_key
 
-        # Initialize LLM provider with session keys
+        # Initialize LLM provider with session keys (prefer Groq if provided since it's free)
         from .llm import make_provider_with_key
-        if anthropic_api_key:
+        if groq_api_key:
+            session.llm_provider = make_provider_with_key("groq", "llama-3.3-70b-versatile", groq_api_key)
+        elif anthropic_api_key:
             session.llm_provider = make_provider_with_key("anthropic", "claude-sonnet-4-6", anthropic_api_key)
         elif openai_api_key:
             session.llm_provider = make_provider_with_key("openai", "gpt-4o", openai_api_key)

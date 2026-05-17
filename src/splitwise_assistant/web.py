@@ -41,6 +41,7 @@ class CredentialsRequest(BaseModel):
     api_key: str | None = None
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
+    groq_api_key: str | None = None
 
 
 class WhiteboardRequest(BaseModel):
@@ -60,7 +61,8 @@ async def set_credentials(req: CredentialsRequest):
             oauth_token=req.oauth_token,
             api_key=req.api_key,
             anthropic_api_key=req.anthropic_api_key,
-            openai_api_key=req.openai_api_key
+            openai_api_key=req.openai_api_key,
+            groq_api_key=req.groq_api_key
         )
         return {"ok": True, "message": "Credentials validated successfully"}
     except ValueError as e:
@@ -76,7 +78,7 @@ async def credentials_status(session_id: str):
     """Check if credentials are configured and bridge is ready."""
     session = _sessions.get(f"web:{session_id}")
     has_splitwise = bool(session.splitwise_oauth_token or session.splitwise_api_key)
-    has_llm = bool(session.anthropic_api_key or session.openai_api_key)
+    has_llm = bool(session.anthropic_api_key or session.openai_api_key or session.groq_api_key)
     has_bridge = session.mcp_bridge is not None
 
     tools_count = 0
@@ -202,6 +204,8 @@ async def get_models(session_id: str | None = None):
                     available.append(model_alias)
                 elif provider_name == "openai" and s.openai_api_key:
                     available.append(model_alias)
+                elif provider_name == "groq" and s.groq_api_key:
+                    available.append(model_alias)
     else:
         available = sorted(AVAILABLE_MODELS)
 
@@ -226,6 +230,10 @@ async def set_model(req: ModelRequest):
         if not session.openai_api_key:
             return {"ok": False, "error": "OpenAI API key not configured for this session"}
         session.llm_provider = make_provider_with_key(provider_name, model_id, session.openai_api_key)
+    elif provider_name == "groq":
+        if not session.groq_api_key:
+            return {"ok": False, "error": "Groq API key not configured for this session"}
+        session.llm_provider = make_provider_with_key(provider_name, model_id, session.groq_api_key)
     else:
         return {"ok": False, "error": f"Provider '{provider_name}' not supported"}
 
@@ -260,6 +268,10 @@ def _model_command(body: str, session) -> str:
         if not session.openai_api_key:
             return "⚠️ OpenAI API key not configured. Please reconnect with your keys."
         session.llm_provider = make_provider_with_key(provider_name, model_id, session.openai_api_key)
+    elif provider_name == "groq":
+        if not session.groq_api_key:
+            return "⚠️ Groq API key not configured. Please reconnect with your keys."
+        session.llm_provider = make_provider_with_key(provider_name, model_id, session.groq_api_key)
     else:
         return f"⚠️ Provider '{provider_name}' not supported"
 
@@ -758,12 +770,18 @@ function showCredentialsModal() {
       <p>Enter your API credentials to get started. Your keys are stored securely in your browser.</p>
       <p style="font-size: 0.85rem; color: var(--text2); margin-top: 8px;">
         <strong>Where to get keys:</strong><br>
+        • Groq (FREE): <a href="https://console.groq.com/keys" target="_blank" style="color: var(--accent);">console.groq.com</a> ⭐<br>
         • Anthropic: <a href="https://console.anthropic.com/account/keys" target="_blank" style="color: var(--accent);">console.anthropic.com</a><br>
         • OpenAI: <a href="https://platform.openai.com/api-keys" target="_blank" style="color: var(--accent);">platform.openai.com</a><br>
         • Splitwise: <a href="https://secure.splitwise.com/apps" target="_blank" style="color: var(--accent);">secure.splitwise.com/apps</a>
       </p>
 
       <h3 style="margin-top: 20px; margin-bottom: 8px; font-size: 0.95rem;">LLM Provider (required)</h3>
+      <label for="groq-key">Groq API Key (FREE, recommended) ⭐</label>
+      <input type="password" id="groq-key" placeholder="gsk_...">
+
+      <div class="divider">OR</div>
+
       <label for="anthropic-key">Anthropic API Key</label>
       <input type="password" id="anthropic-key" placeholder="sk-ant-...">
 
@@ -799,6 +817,7 @@ function showCredentialsModal() {
 }
 
 async function saveCredentials() {
+  const groqKey = document.getElementById('groq-key').value.trim();
   const anthropicKey = document.getElementById('anthropic-key').value.trim();
   const openaiKey = document.getElementById('openai-key').value.trim();
   const oauthToken = document.getElementById('oauth-token').value.trim();
@@ -806,11 +825,11 @@ async function saveCredentials() {
   const errorDiv = document.getElementById('cred-error');
 
   // Validate inputs
-  const hasLLM = anthropicKey || openaiKey;
+  const hasLLM = groqKey || anthropicKey || openaiKey;
   const hasSplitwise = oauthToken || apiKey;
 
   if (!hasLLM) {
-    errorDiv.textContent = 'Please provide Anthropic or OpenAI API key';
+    errorDiv.textContent = 'Please provide Groq, Anthropic, or OpenAI API key';
     errorDiv.style.display = 'block';
     return;
   }
@@ -831,6 +850,7 @@ async function saveCredentials() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         session_id: sessionId,
+        groq_api_key: groqKey || null,
         anthropic_api_key: anthropicKey || null,
         openai_api_key: openaiKey || null,
         oauth_token: oauthToken || null,
@@ -843,6 +863,7 @@ async function saveCredentials() {
     if (data.ok) {
       // Store credentials in localStorage for persistence
       localStorage.setItem('sw_creds', JSON.stringify({
+        groq_api_key: groqKey || null,
         anthropic_api_key: anthropicKey || null,
         openai_api_key: openaiKey || null,
         oauth_token: oauthToken || null,
@@ -850,7 +871,8 @@ async function saveCredentials() {
       }));
 
       document.getElementById('creds-modal').remove();
-      addMsg('bot', '✅ Connected! How can I help you with your Splitwise expenses?');
+      const provider = groqKey ? 'Groq (FREE)' : anthropicKey ? 'Anthropic' : 'OpenAI';
+      addMsg('bot', `✅ Connected using ${provider}! How can I help you with your Splitwise expenses?`);
     } else {
       errorDiv.textContent = data.error || 'Failed to connect';
       errorDiv.style.display = 'block';

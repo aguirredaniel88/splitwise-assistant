@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     # LLM API keys (optional - users can provide via UI)
     anthropic_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
+    groq_api_key: Optional[str] = None  # Free Llama models
 
     # Splitwise auth (optional - for WhatsApp endpoint only, web users provide via UI)
     splitwise_oauth_access_token: Optional[str] = None

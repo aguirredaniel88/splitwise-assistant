@@ -218,6 +218,13 @@ _MODEL_ALIASES: dict[str, tuple[str, str]] = {
     "openai": ("openai", "gpt-4o"),
     "gpt-mini": ("openai", "gpt-4o-mini"),
     "gpt-4o-mini": ("openai", "gpt-4o-mini"),
+    # Groq / Llama (FREE)
+    "groq": ("groq", "llama-3.3-70b-versatile"),
+    "llama": ("groq", "llama-3.3-70b-versatile"),
+    "llama3": ("groq", "llama-3.3-70b-versatile"),
+    "llama-3.3-70b": ("groq", "llama-3.3-70b-versatile"),
+    "llama-small": ("groq", "llama-3.1-8b-instant"),
+    "llama-3.1-8b": ("groq", "llama-3.1-8b-instant"),
 }
 
 AVAILABLE_MODELS = sorted(_MODEL_ALIASES.keys())
@@ -243,6 +250,14 @@ def make_provider_with_key(provider: str, model: str, api_key: str) -> LLMProvid
         return AnthropicProvider(model, api_key=api_key)
     if provider == "openai":
         return OpenAIProvider(model, api_key=api_key)
+    if provider == "groq":
+        return OpenAIProvider(
+            model=model,
+            api_key=api_key,
+            base_url="https://api.groq.com/openai/v1",
+            slim_tools=True,
+            max_history=10,
+        )
     raise ValueError(f"Unknown provider: {provider}")
 
 
