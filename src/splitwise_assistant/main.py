@@ -7,6 +7,8 @@ from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 from .config import settings
 from .mcp_bridge import create_bridge, MCPBridge
@@ -39,6 +41,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Splitwise Assistant", version="0.1.0", lifespan=lifespan)
+
+# Mount static files for PWA
+static_dir = Path(__file__).parent / "static"
+if static_dir.exists():
+    app.mount("/api/static", StaticFiles(directory=str(static_dir)), name="static")
+
 app.include_router(whatsapp_router)
 app.include_router(web_router)
 

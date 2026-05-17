@@ -292,6 +292,16 @@ _HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Splitwise Assistant</title>
+
+<!-- PWA Meta Tags -->
+<meta name="description" content="AI-powered Splitwise expense management assistant">
+<meta name="theme-color" content="#5c6ef8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Splitwise">
+<link rel="manifest" href="/api/static/manifest.json">
+<link rel="icon" type="image/svg+xml" href="/api/static/icon.svg">
+<link rel="apple-touch-icon" href="/api/static/icon.svg">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -388,6 +398,8 @@ _HTML = """<!DOCTYPE html>
     align-items: center;
     justify-content: center;
     z-index: 1000;
+    overflow-y: auto;
+    padding: 20px 0;
   }
 
   .modal-content {
@@ -397,6 +409,9 @@ _HTML = """<!DOCTYPE html>
     padding: 24px;
     max-width: 500px;
     width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    margin: auto;
   }
 
   .modal-content h2 {
@@ -452,6 +467,45 @@ _HTML = """<!DOCTYPE html>
     margin-top: 8px;
   }
 
+  /* Mobile modal optimizations */
+  @media (max-width: 600px) {
+    .credentials-modal {
+      align-items: flex-start;
+      padding: 10px 0;
+    }
+    .modal-content {
+      width: 95%;
+      padding: 20px 16px;
+      max-height: 95vh;
+      margin: 10px auto;
+    }
+    .modal-content h2 {
+      font-size: 1.2rem;
+    }
+    .modal-content p {
+      font-size: 0.85rem;
+    }
+    .modal-content label {
+      font-size: 0.85rem;
+      margin: 12px 0 4px;
+    }
+    .modal-content input[type="text"],
+    .modal-content input[type="password"] {
+      font-size: 0.9rem;
+      padding: 8px 10px;
+    }
+    .modal-content .divider {
+      margin: 12px 0;
+      font-size: 0.85rem;
+    }
+    .modal-actions {
+      flex-direction: column;
+    }
+    .modal-actions button {
+      width: 100%;
+    }
+  }
+
   .input-row { display: flex; gap: 8px; padding: 14px 20px;
                background: var(--surface); border-top: 1px solid var(--border);
                flex-shrink: 0; align-items: flex-end; }
@@ -488,6 +542,7 @@ _HTML = """<!DOCTYPE html>
 <header>
   <h1>Splitwise <span>Assistant</span></h1>
   <select id="model-select" title="Switch AI model"></select>
+  <button id="install-btn" title="Install app" style="display:none"><span class="btn-text-full">Install App</span><span class="btn-text-short">📲</span></button>
   <button id="reset-btn" title="Start a new conversation"><span class="btn-text-full">New chat</span><span class="btn-text-short">New</span></button>
   <button id="logout-btn" title="Logout and clear all data"><span class="btn-text-full">Logout</span><span class="btn-text-short">🚪</span></button>
 </header>
@@ -1094,6 +1149,51 @@ document.getElementById('mic-btn').addEventListener('click', () => {
     addMsg('bot', 'Hi! Ask me anything about your Splitwise expenses, or drop a receipt photo.');
   }
 })();
+
+// ── PWA Installation ─────────────────────────────────────────────────────────
+let deferredPrompt = null;
+
+// Register service worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/api/static/sw.js')
+    .then(reg => console.log('Service Worker registered'))
+    .catch(err => console.log('Service Worker registration failed:', err));
+}
+
+// Capture the beforeinstallprompt event
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  document.getElementById('install-btn').style.display = 'inline-block';
+});
+
+// Handle install button click
+document.getElementById('install-btn').addEventListener('click', async () => {
+  if (!deferredPrompt) return;
+
+  deferredPrompt.prompt();
+  const { outcome } = await deferredPrompt.userChoice;
+
+  if (outcome === 'accepted') {
+    console.log('User accepted the install prompt');
+  }
+
+  deferredPrompt = null;
+  document.getElementById('install-btn').style.display = 'none';
+});
+
+// Hide install button if already installed
+window.addEventListener('appinstalled', () => {
+  console.log('PWA installed');
+  document.getElementById('install-btn').style.display = 'none';
+  deferredPrompt = null;
+});
+
+// For iOS - hide install button if running in standalone mode (already installed)
+if (window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true) {
+  document.getElementById('install-btn').style.display = 'none';
+}
 </script>
 </body>
 </html>"""
