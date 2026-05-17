@@ -5,21 +5,16 @@ from typing import Optional
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    anthropic_api_key: str
+    # LLM API keys (optional - users can provide via UI)
+    anthropic_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = None
 
-    # Splitwise auth (passed through to MCP server via env)
+    # Splitwise auth (optional - for WhatsApp endpoint only, web users provide via UI)
     splitwise_oauth_access_token: Optional[str] = None
     splitwise_api_key: Optional[str] = None
 
-    # OpenAI
-    openai_api_key: Optional[str] = None
-
-    # Free providers
-    google_api_key: Optional[str] = None   # Gemini — aistudio.google.com
-    groq_api_key: Optional[str] = None     # Groq / Llama — console.groq.com
-
     # Default LLM provider and models
-    llm_provider: str = "anthropic"  # "anthropic" | "openai" | "gemini" | "groq"
+    llm_provider: str = "anthropic"  # "anthropic" | "openai"
     anthropic_model: str = "claude-sonnet-4-6"
     openai_model: str = "gpt-4o"
 

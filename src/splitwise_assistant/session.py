@@ -32,6 +32,9 @@ class Session:
     # Per-user Splitwise credentials (not logged for security)
     splitwise_oauth_token: Optional[str] = field(default=None, repr=False)
     splitwise_api_key: Optional[str] = field(default=None, repr=False)
+    # Per-user LLM API keys (not logged for security)
+    anthropic_api_key: Optional[str] = field(default=None, repr=False)
+    openai_api_key: Optional[str] = field(default=None, repr=False)
     # Per-session MCP bridge
     mcp_bridge: Optional[Any] = field(default=None, repr=False)
 
@@ -56,14 +59,18 @@ class SessionManager:
         self,
         phone: str,
         oauth_token: str | None = None,
-        api_key: str | None = None
+        api_key: str | None = None,
+        anthropic_api_key: str | None = None,
+        openai_api_key: str | None = None
     ) -> bool:
-        """Set Splitwise credentials and initialize bridge for a session.
+        """Set Splitwise and LLM credentials for a session.
 
         Args:
             phone: Session identifier
             oauth_token: Optional Splitwise OAuth access token
             api_key: Optional Splitwise API key
+            anthropic_api_key: Optional Anthropic API key
+            openai_api_key: Optional OpenAI API key
 
         Returns:
             True if credentials were validated and bridge initialized successfully
@@ -71,9 +78,14 @@ class SessionManager:
         Raises:
             ValueError: If no credentials provided or if credentials are invalid
         """
-        # Validate at least one credential provided
-        if not oauth_token and not api_key:
-            raise ValueError("Must provide oauth_token or api_key")
+        # Validate at least one Splitwise credential and one LLM key provided
+        has_splitwise = bool(oauth_token or api_key)
+        has_llm = bool(anthropic_api_key or openai_api_key)
+
+        if not has_splitwise:
+            raise ValueError("Must provide Splitwise oauth_token or api_key")
+        if not has_llm:
+            raise ValueError("Must provide Anthropic or OpenAI API key")
 
         session = self.get(phone)
 
@@ -85,6 +97,15 @@ class SessionManager:
         # Store credentials (memory only)
         session.splitwise_oauth_token = oauth_token
         session.splitwise_api_key = api_key
+        session.anthropic_api_key = anthropic_api_key
+        session.openai_api_key = openai_api_key
+
+        # Initialize LLM provider with session keys
+        from .llm import make_provider_with_key
+        if anthropic_api_key:
+            session.llm_provider = make_provider_with_key("anthropic", "claude-sonnet-4-6", anthropic_api_key)
+        elif openai_api_key:
+            session.llm_provider = make_provider_with_key("openai", "gpt-4o", openai_api_key)
 
         # Create and initialize new bridge
         from .mcp_bridge import create_bridge

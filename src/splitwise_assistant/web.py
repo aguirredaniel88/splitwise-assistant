@@ -39,18 +39,22 @@ class CredentialsRequest(BaseModel):
     session_id: str
     oauth_token: str | None = None
     api_key: str | None = None
+    anthropic_api_key: str | None = None
+    openai_api_key: str | None = None
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/credentials")
 async def set_credentials(req: CredentialsRequest):
-    """Set Splitwise credentials for a session."""
+    """Set Splitwise and LLM API credentials for a session."""
     try:
         await _sessions.set_credentials(
             f"web:{req.session_id}",
             oauth_token=req.oauth_token,
-            api_key=req.api_key
+            api_key=req.api_key,
+            anthropic_api_key=req.anthropic_api_key,
+            openai_api_key=req.openai_api_key
         )
         return {"ok": True, "message": "Credentials validated successfully"}
     except ValueError as e:
@@ -64,7 +68,8 @@ async def set_credentials(req: CredentialsRequest):
 async def credentials_status(session_id: str):
     """Check if credentials are configured and bridge is ready."""
     session = _sessions.get(f"web:{session_id}")
-    has_creds = bool(session.splitwise_oauth_token or session.splitwise_api_key)
+    has_splitwise = bool(session.splitwise_oauth_token or session.splitwise_api_key)
+    has_llm = bool(session.anthropic_api_key or session.openai_api_key)
     has_bridge = session.mcp_bridge is not None
 
     tools_count = 0
@@ -75,7 +80,7 @@ async def credentials_status(session_id: str):
             pass
 
     return {
-        "configured": has_creds,
+        "configured": has_splitwise and has_llm,
         "ready": has_bridge,
         "tools_available": tools_count
     }
@@ -637,15 +642,25 @@ function showCredentialsModal() {
   modal.id = 'creds-modal';
   modal.innerHTML = `
     <div class="modal-content">
-      <h2>Connect to Splitwise</h2>
-      <p>Enter your Splitwise API credentials to get started.</p>
+      <h2>Connect Your Accounts</h2>
+      <p>Enter your API credentials to get started. Your keys are stored securely in your browser.</p>
 
+      <h3 style="margin-top: 20px; margin-bottom: 8px; font-size: 0.95rem;">LLM Provider (required)</h3>
+      <label for="anthropic-key">Anthropic API Key</label>
+      <input type="password" id="anthropic-key" placeholder="sk-ant-...">
+
+      <div class="divider">OR</div>
+
+      <label for="openai-key">OpenAI API Key</label>
+      <input type="password" id="openai-key" placeholder="sk-...">
+
+      <h3 style="margin-top: 24px; margin-bottom: 8px; font-size: 0.95rem;">Splitwise (required)</h3>
       <label for="oauth-token">OAuth Access Token (recommended)</label>
       <input type="password" id="oauth-token" placeholder="Enter your OAuth token">
 
       <div class="divider">OR</div>
 
-      <label for="api-key">API Key</label>
+      <label for="api-key">Splitwise API Key</label>
       <input type="password" id="api-key" placeholder="Enter your API key">
 
       <div class="error-msg" id="cred-error" style="display:none"></div>
@@ -655,7 +670,7 @@ function showCredentialsModal() {
           Connect
         </button>
         <button id="learn-more" onclick="window.open('https://secure.splitwise.com/apps', '_blank')">
-          Get Credentials
+          Get Keys
         </button>
       </div>
     </div>
@@ -666,12 +681,24 @@ function showCredentialsModal() {
 }
 
 async function saveCredentials() {
+  const anthropicKey = document.getElementById('anthropic-key').value.trim();
+  const openaiKey = document.getElementById('openai-key').value.trim();
   const oauthToken = document.getElementById('oauth-token').value.trim();
   const apiKey = document.getElementById('api-key').value.trim();
   const errorDiv = document.getElementById('cred-error');
 
-  if (!oauthToken && !apiKey) {
-    errorDiv.textContent = 'Please provide OAuth token or API key';
+  // Validate inputs
+  const hasLLM = anthropicKey || openaiKey;
+  const hasSplitwise = oauthToken || apiKey;
+
+  if (!hasLLM) {
+    errorDiv.textContent = 'Please provide Anthropic or OpenAI API key';
+    errorDiv.style.display = 'block';
+    return;
+  }
+
+  if (!hasSplitwise) {
+    errorDiv.textContent = 'Please provide Splitwise OAuth token or API key';
     errorDiv.style.display = 'block';
     return;
   }
@@ -686,6 +713,8 @@ async function saveCredentials() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         session_id: sessionId,
+        anthropic_api_key: anthropicKey || null,
+        openai_api_key: openaiKey || null,
         oauth_token: oauthToken || null,
         api_key: apiKey || null
       })
@@ -696,12 +725,14 @@ async function saveCredentials() {
     if (data.ok) {
       // Store credentials in localStorage for persistence
       localStorage.setItem('sw_creds', JSON.stringify({
+        anthropic_api_key: anthropicKey || null,
+        openai_api_key: openaiKey || null,
         oauth_token: oauthToken || null,
         api_key: apiKey || null
       }));
 
       document.getElementById('creds-modal').remove();
-      addMsg('bot', '✅ Connected to Splitwise! How can I help you?');
+      addMsg('bot', '✅ Connected! How can I help you with your Splitwise expenses?');
     } else {
       errorDiv.textContent = data.error || 'Failed to connect';
       errorDiv.style.display = 'block';

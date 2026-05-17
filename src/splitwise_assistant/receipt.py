@@ -14,8 +14,6 @@ from .session import Session, ReceiptItem
 
 logger = logging.getLogger(__name__)
 
-_anthropic = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-
 # Keywords that trigger "split total equally" shortcut
 _TOTAL_KEYWORDS = {"total", "equally", "equal", "todo", "igual", "all", "together", "split total"}
 
@@ -32,8 +30,11 @@ async def start_receipt_flow(image_url: str, session: Session) -> str:
 
 
 async def _start_flow(image_b64: str, media_type: str, session: Session) -> str:
+    # Check for Anthropic API key (needed for vision)
+    if not session.anthropic_api_key:
+        return "⚠️ Anthropic API key required for receipt scanning. Please set up your credentials."
 
-    items = await _extract_items(image_b64, media_type)
+    items = await _extract_items(image_b64, media_type, session.anthropic_api_key)
     if not items:
         return "I couldn't read any items from the receipt. Please try a clearer photo."
 
@@ -117,7 +118,7 @@ Rules:
 - "equally" or "50/50" with two names → 50% each
 - Match names to known friends (case-insensitive partial match)"""
 
-    raw = await parse_with_haiku(prompt)
+    raw = await parse_with_haiku(prompt, api_key=session.anthropic_api_key)
     raw = _strip_fences(raw)
 
     try:
@@ -160,7 +161,7 @@ Rules:
 - "equally" with N people → divide 100 equally
 - Match names to known friends (case-insensitive)"""
 
-    raw = await parse_with_haiku(prompt)
+    raw = await parse_with_haiku(prompt, api_key=session.anthropic_api_key)
     raw = _strip_fences(raw)
 
     try:
@@ -271,8 +272,19 @@ async def assign_receipt_items(session: Session, assignments: list[dict]) -> str
     return await _create_expenses(session)
 
 
-async def _extract_items(image_b64: str, media_type: str) -> list[dict]:
-    response = _anthropic.messages.create(
+async def _extract_items(image_b64: str, media_type: str, api_key: str) -> list[dict]:
+    """Extract receipt items using Anthropic vision API.
+
+    Args:
+        image_b64: Base64-encoded image
+        media_type: Image MIME type
+        api_key: Anthropic API key
+
+    Returns:
+        List of items with name and price
+    """
+    client = anthropic.Anthropic(api_key=api_key)
+    response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1024,
         messages=[{

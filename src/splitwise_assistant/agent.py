@@ -138,11 +138,21 @@ def _serialize(value: Any) -> str:
         return str(value)
 
 
-async def parse_with_haiku(prompt: str) -> str:
-    """Low-cost Haiku call for parsing tasks (always uses Anthropic)."""
+async def parse_with_haiku(prompt: str, api_key: str | None = None) -> str:
+    """Low-cost Haiku call for parsing tasks (always uses Anthropic).
+
+    Args:
+        prompt: The parsing prompt
+        api_key: Anthropic API key (required if not in settings)
+    """
     import anthropic as _anthropic
     from .config import settings
-    client = _anthropic.Anthropic(api_key=settings.anthropic_api_key)
+
+    key = api_key or settings.anthropic_api_key
+    if not key:
+        raise ValueError("Anthropic API key required for receipt parsing")
+
+    client = _anthropic.Anthropic(api_key=key)
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=512,

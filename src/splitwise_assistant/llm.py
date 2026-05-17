@@ -75,9 +75,9 @@ class LLMProvider(ABC):
 # ---------------------------------------------------------------------------
 
 class AnthropicProvider(LLMProvider):
-    def __init__(self, model: str) -> None:
+    def __init__(self, model: str, api_key: str | None = None) -> None:
         self._model = model
-        self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        self._client = anthropic.Anthropic(api_key=api_key or settings.anthropic_api_key)
 
     @property
     def name(self) -> str:
@@ -191,7 +191,7 @@ class OpenAIProvider(LLMProvider):
 
 # Friendly name → (provider, model)
 _MODEL_ALIASES: dict[str, tuple[str, str]] = {
-    # Anthropic (paid)
+    # Anthropic
     "claude": ("anthropic", "claude-sonnet-4-6"),
     "claude-sonnet": ("anthropic", "claude-sonnet-4-6"),
     "sonnet": ("anthropic", "claude-sonnet-4-6"),
@@ -200,28 +200,13 @@ _MODEL_ALIASES: dict[str, tuple[str, str]] = {
     "opus": ("anthropic", "claude-opus-4-7"),
     "claude-haiku": ("anthropic", "claude-haiku-4-5-20251001"),
     "haiku": ("anthropic", "claude-haiku-4-5-20251001"),
-    # OpenAI (paid)
+    # OpenAI
     "gpt": ("openai", "gpt-4o"),
     "gpt-4o": ("openai", "gpt-4o"),
     "chatgpt": ("openai", "gpt-4o"),
     "openai": ("openai", "gpt-4o"),
     "gpt-mini": ("openai", "gpt-4o-mini"),
     "gpt-4o-mini": ("openai", "gpt-4o-mini"),
-    # Google Gemini (free tier — aistudio.google.com)
-    "gemini": ("gemini", "gemini-1.5-flash"),
-    "gemini-flash": ("gemini", "gemini-1.5-flash"),
-    "gemini-1.5-flash": ("gemini", "gemini-1.5-flash"),
-    "gemini-2.0-flash": ("gemini", "gemini-2.0-flash"),
-    # Groq / Llama (free tier — console.groq.com)
-    # llama-3.1-8b-instant: 30K TPM (better for free tier with many tools)
-    # llama-3.3-70b-versatile: 6K TPM (smarter but hits limits fast)
-    "groq": ("groq", "llama-3.1-8b-instant"),
-    "llama": ("groq", "llama-3.1-8b-instant"),
-    "llama3": ("groq", "llama-3.1-8b-instant"),
-    "llama-small": ("groq", "llama-3.1-8b-instant"),
-    "llama-large": ("groq", "llama-3.3-70b-versatile"),
-    "llama-3.1-8b-instant": ("groq", "llama-3.1-8b-instant"),
-    "llama-3.3-70b-versatile": ("groq", "llama-3.3-70b-versatile"),
 }
 
 AVAILABLE_MODELS = sorted(_MODEL_ALIASES.keys())
@@ -233,32 +218,28 @@ def resolve_model(alias: str) -> tuple[str, str] | None:
 
 
 def make_provider(provider: str, model: str) -> LLMProvider:
+    """Create provider using global settings (for backward compatibility)."""
     if provider == "anthropic":
         return AnthropicProvider(model)
     if provider == "openai":
         return OpenAIProvider(model)
-    if provider == "gemini":
-        return OpenAIProvider(
-            model=model,
-            api_key=settings.google_api_key,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-        )
-    if provider == "groq":
-        return OpenAIProvider(
-            model=model,
-            api_key=settings.groq_api_key,
-            base_url="https://api.groq.com/openai/v1",
-            slim_tools=True,   # Groq free tier: 6K TPM — use compact tool set
-            max_history=8,     # shorter history to save tokens
-        )
+    raise ValueError(f"Unknown provider: {provider}")
+
+
+def make_provider_with_key(provider: str, model: str, api_key: str) -> LLMProvider:
+    """Create provider with session-specific API key."""
+    if provider == "anthropic":
+        return AnthropicProvider(model, api_key=api_key)
+    if provider == "openai":
+        return OpenAIProvider(model, api_key=api_key)
     raise ValueError(f"Unknown provider: {provider}")
 
 
 def default_provider() -> LLMProvider:
-    if settings.llm_provider == "gemini":
-        return make_provider("gemini", "gemini-2.0-flash")
-    if settings.llm_provider == "groq":
-        return make_provider("groq", "llama-3.1-8b-instant")
-    if settings.llm_provider == "openai":
+    """Create default provider (used for WhatsApp, requires env vars)."""
+    if settings.llm_provider == "openai" and settings.openai_api_key:
         return OpenAIProvider(settings.openai_model)
+    if settings.anthropic_api_key:
+        return AnthropicProvider(settings.anthropic_model)
+    # If no keys in settings, return a dummy provider (web UI will override with session keys)
     return AnthropicProvider(settings.anthropic_model)
