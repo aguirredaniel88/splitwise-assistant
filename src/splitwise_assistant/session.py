@@ -108,7 +108,7 @@ class SessionManager:
         # Initialize LLM provider with session keys (prefer Groq if provided since it's free)
         from .llm import make_provider_with_key
         if groq_api_key:
-            session.llm_provider = make_provider_with_key("groq", "llama-3.1-8b-instant", groq_api_key)
+            session.llm_provider = make_provider_with_key("groq", "llama-3.3-70b-versatile", groq_api_key)
         elif anthropic_api_key:
             session.llm_provider = make_provider_with_key("anthropic", "claude-sonnet-4-6", anthropic_api_key)
         elif openai_api_key:

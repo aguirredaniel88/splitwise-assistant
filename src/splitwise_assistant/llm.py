@@ -218,13 +218,13 @@ _MODEL_ALIASES: dict[str, tuple[str, str]] = {
     "openai": ("openai", "gpt-4o"),
     "gpt-mini": ("openai", "gpt-4o-mini"),
     "gpt-4o-mini": ("openai", "gpt-4o-mini"),
-    # Groq / Llama (FREE) - use small 8B model to fit within 12k token limit
-    "groq": ("groq", "llama-3.1-8b-instant"),
-    "llama": ("groq", "llama-3.1-8b-instant"),
-    "llama3": ("groq", "llama-3.1-8b-instant"),
-    "llama-3.1-8b": ("groq", "llama-3.1-8b-instant"),
-    "llama-large": ("groq", "llama-3.3-70b-versatile"),
+    # Groq / Llama (FREE) - 70B model is better at tool calling
+    "groq": ("groq", "llama-3.3-70b-versatile"),
+    "llama": ("groq", "llama-3.3-70b-versatile"),
+    "llama3": ("groq", "llama-3.3-70b-versatile"),
     "llama-3.3-70b": ("groq", "llama-3.3-70b-versatile"),
+    "llama-small": ("groq", "llama-3.1-8b-instant"),
+    "llama-3.1-8b": ("groq", "llama-3.1-8b-instant"),
 }
 
 AVAILABLE_MODELS = sorted(_MODEL_ALIASES.keys())
@@ -256,7 +256,7 @@ def make_provider_with_key(provider: str, model: str, api_key: str) -> LLMProvid
             api_key=api_key,
             base_url="https://api.groq.com/openai/v1",
             slim_tools=True,
-            max_history=2,  # Groq has strict 12k token limit - keep history extremely short
+            max_history=6,  # Tool results are cleaned up after each turn, so we can keep more history
         )
     raise ValueError(f"Unknown provider: {provider}")
 
