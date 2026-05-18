@@ -23,16 +23,10 @@ async def run_agent(session: Session, user_message: str) -> str:
     if not bridge:
         return "⚠️ Splitwise not configured. Please set up your credentials."
 
-    # Inject whiteboard context if available (limited for Groq due to token constraints)
+    # Inject whiteboard context if available
     whiteboard_context = ""
     if session.whiteboard:
-        is_groq = "groq" in provider.name.lower() or getattr(provider, "_slim_tools", False)
-        if is_groq:
-            # For Groq: only include group names, not full details (save tokens)
-            group_names = {gid: data.get("group_name", "Unknown") for gid, data in session.whiteboard.items()}
-            whiteboard_context = f"\n\n**Cached groups:** {', '.join(group_names.values())}"
-        else:
-            whiteboard_context = f"\n\n**Your Whiteboard (cached group info):**\n```json\n{_serialize(session.whiteboard)}\n```"
+        whiteboard_context = f"\n\n**Your Whiteboard (cached group info):**\n```json\n{_serialize(session.whiteboard)}\n```"
 
     session.history.append({"role": "user", "content": user_message + whiteboard_context})
 
@@ -114,6 +108,8 @@ async def run_agent(session: Session, user_message: str) -> str:
 
         if not response.has_tool_calls:
             provider.append_assistant(session.history, response)
+            # Clean up tool results from history to save tokens (keep only user/assistant messages)
+            _cleanup_tool_results(session.history, provider)
             return response.text or "Done."
 
         # Validate tool names before executing — small models sometimes hallucinate names
@@ -133,6 +129,22 @@ async def run_agent(session: Session, user_message: str) -> str:
 
 
 _MAX_TOOL_RESULT_CHARS = 50000
+
+
+def _cleanup_tool_results(history: list[dict], provider) -> None:
+    """Remove tool results from history to save tokens. Only keep user and assistant messages."""
+    # For Anthropic: remove tool_result content blocks from user messages
+    if provider.__class__.__name__ == "AnthropicProvider":
+        for msg in history:
+            if msg.get("role") == "user" and isinstance(msg.get("content"), list):
+                msg["content"] = [
+                    block for block in msg["content"]
+                    if not (isinstance(block, dict) and block.get("type") == "tool_result")
+                ]
+    # For OpenAI/Groq: remove messages with role="tool"
+    else:
+        history[:] = [msg for msg in history if msg.get("role") != "tool"]
+
 
 async def _execute_tools(tool_calls, bridge, session=None) -> list[tuple[str, str, bool]]:
     """Execute tools using provided bridge and auto-cache group data."""
