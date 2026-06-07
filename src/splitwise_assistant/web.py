@@ -1116,9 +1116,12 @@ _HTML = """<!DOCTYPE html>
 
     <div>
       <label for="group-select">Group</label>
-      <select id="group-select">
-        <option value="">No group (personal)</option>
-      </select>
+      <div style="display: flex; gap: 8px;">
+        <select id="group-select" style="flex: 1;">
+          <option value="">No group (personal)</option>
+        </select>
+        <button id="reload-groups-btn" type="button" style="padding: 10px 16px; white-space: nowrap;" title="Reload groups from Splitwise">🔄 Reload</button>
+      </div>
     </div>
 
     <div>
@@ -1867,6 +1870,42 @@ async function loadGroupsIfNeeded() {
     }
   }
 }
+
+// Reload groups button handler
+document.getElementById('reload-groups-btn')?.addEventListener('click', async () => {
+  const btn = document.getElementById('reload-groups-btn');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '🔄 Loading...';
+
+  try {
+    // Clear cached whiteboard
+    localStorage.removeItem('sw_whiteboard');
+
+    // Force reload from Splitwise
+    const select = document.getElementById('group-select');
+    select.disabled = true;
+    select.innerHTML = '<option value="">Loading groups...</option>';
+
+    const res = await fetch(`${API}/manual/groups?session_id=${sessionId}`);
+    const data = await res.json();
+
+    if (data.ok && data.whiteboard) {
+      localStorage.setItem('sw_whiteboard', JSON.stringify(data.whiteboard));
+      populateGroupSelect();
+      alert(`✅ Reloaded ${data.count} groups from Splitwise`);
+    } else {
+      alert('Failed to reload groups: ' + (data.error || 'Unknown error'));
+    }
+  } catch (err) {
+    console.error('Failed to reload groups:', err);
+    alert('Error reloading groups: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+    document.getElementById('group-select').disabled = false;
+  }
+});
 
 // Populate groups from whiteboard
 function populateGroupSelect() {
