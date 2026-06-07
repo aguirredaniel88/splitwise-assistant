@@ -263,6 +263,7 @@ async def load_groups(session_id: str):
                     members = []
                     default_percentages = {}
 
+                    # Build member list
                     for member in group_info.get("members", []):
                         user_id = member.get("user_id") or member.get("id")
                         if user_id:
@@ -275,13 +276,26 @@ async def load_groups(session_id: str):
                                 "email": member.get("email")
                             })
 
-                            # Get balance for default percentages
-                            balance = member.get("balance", [])
-                            if balance and isinstance(balance, list):
-                                for bal in balance:
-                                    amount = bal.get("amount")
-                                    if amount:
-                                        default_percentages[str(user_id)] = float(amount)
+                    # Parse whiteboard text for default percentages
+                    whiteboard_text = group_info.get("whiteboard", "")
+                    if whiteboard_text:
+                        logger.info(f"Parsing whiteboard text for group {group_id}")
+                        # Parse lines like "Monica: 10%" or "Daniel: 40%"
+                        import re
+                        for line in whiteboard_text.split('\n'):
+                            # Match pattern: "Name: XX%" or "Name: XX.X%"
+                            match = re.match(r'^([^:]+):\s*(\d+(?:\.\d+)?)\s*%?\s*$', line.strip())
+                            if match:
+                                name_in_whiteboard = match.group(1).strip().lower()
+                                percentage = float(match.group(2))
+
+                                # Find matching member by first name (case-insensitive)
+                                for member in members:
+                                    member_first = member["name"].split()[0].lower() if member["name"] else ""
+                                    if member_first and member_first in name_in_whiteboard:
+                                        default_percentages[str(member["user_id"])] = percentage
+                                        logger.info(f"Matched '{name_in_whiteboard}' to user {member['user_id']} ({member['name']}): {percentage}%")
+                                        break
 
                     session.whiteboard[group_id] = {
                         "group_name": group_info.get("name", group.get("name", "Unknown")),
@@ -2154,18 +2168,13 @@ function applyDefaultPercentages() {
   if (!currentGroupData || !currentGroupData.default_percentages) return;
 
   const defaultPercentages = currentGroupData.default_percentages;
-  const total = Object.values(defaultPercentages).reduce((sum, val) => sum + Math.abs(val), 0);
 
-  if (total === 0) return;
-
-  // Normalize to percentages that add up to 100
+  // Apply percentages directly (they're already percentages from the whiteboard text)
   const inputs = document.querySelectorAll('.split-input');
   inputs.forEach(input => {
     const userId = input.dataset.userId;
-    if (userId && defaultPercentages[userId]) {
-      const rawAmount = Math.abs(defaultPercentages[userId]);
-      const percentage = (rawAmount / total) * 100;
-      input.value = percentage.toFixed(2);
+    if (userId && defaultPercentages[userId] !== undefined) {
+      input.value = defaultPercentages[userId].toFixed(2);
     }
   });
 
