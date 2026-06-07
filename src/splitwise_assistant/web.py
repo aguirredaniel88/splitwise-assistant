@@ -2409,26 +2409,63 @@ if ('serviceWorker' in navigator) {
     .catch(err => console.log('Service Worker registration failed:', err));
 }
 
-// Capture the beforeinstallprompt event
+// Detect if iOS Safari
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.MSStream;
+const isInStandaloneMode = ('standalone' in navigator) && navigator.standalone;
+
+// Show install button for iOS (if not already installed) or when beforeinstallprompt fires
+if (isIOS && !isInStandaloneMode) {
+  document.getElementById('install-btn').style.display = 'inline-block';
+}
+
+// Capture the beforeinstallprompt event (Android/Chrome)
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
   document.getElementById('install-btn').style.display = 'inline-block';
 });
 
+// Show iOS install instructions
+function showIOSInstallInstructions() {
+  const modal = document.createElement('div');
+  modal.className = 'credentials-modal';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <h2>📲 Install App</h2>
+      <p>To add Splitwise Assistant to your home screen:</p>
+      <ol style="line-height: 1.8; margin-left: 20px; color: var(--text);">
+        <li>Tap the <strong>Share</strong> button <svg style="width:16px;height:16px;vertical-align:middle" viewBox="0 0 50 50"><path fill="currentColor" d="M30.3 13.7L25 8.4l-5.3 5.3-1.4-1.4L25 5.6l6.7 6.7z"/><path fill="currentColor" d="M24 7h2v21h-2z"/><path fill="currentColor" d="M35 40H15c-1.7 0-3-1.3-3-3V19c0-1.7 1.3-3 3-3h7v2h-7c-.6 0-1 .4-1 1v18c0 .6.4 1 1 1h20c.6 0 1-.4 1-1V19c0-.6-.4-1-1-1h-7v-2h7c1.7 0 3 1.3 3 3v18c0 1.7-1.3 3-3 3z"/></svg></li>
+        <li>Scroll down and tap <strong>"Add to Home Screen"</strong></li>
+        <li>Tap <strong>"Add"</strong></li>
+      </ol>
+      <div class="modal-actions">
+        <button id="close-install-modal" style="background:var(--accent); border-color:var(--accent); color:#fff">
+          Got it
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  document.getElementById('close-install-modal').onclick = () => modal.remove();
+}
+
 // Handle install button click
 document.getElementById('install-btn').addEventListener('click', async () => {
-  if (!deferredPrompt) return;
+  if (isIOS) {
+    // Show iOS instructions
+    showIOSInstallInstructions();
+  } else if (deferredPrompt) {
+    // Android/Chrome native prompt
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
 
-  deferredPrompt.prompt();
-  const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      console.log('User accepted the install prompt');
+    }
 
-  if (outcome === 'accepted') {
-    console.log('User accepted the install prompt');
+    deferredPrompt = null;
+    document.getElementById('install-btn').style.display = 'none';
   }
-
-  deferredPrompt = null;
-  document.getElementById('install-btn').style.display = 'none';
 });
 
 // Hide install button if already installed
