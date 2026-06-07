@@ -64,7 +64,16 @@ async def set_credentials(req: CredentialsRequest):
             openai_api_key=req.openai_api_key,
             groq_api_key=req.groq_api_key
         )
-        return {"ok": True, "message": "Credentials validated successfully"}
+        session = _sessions.get(f"web:{req.session_id}")
+        has_llm = bool(session.llm_provider)
+        has_splitwise = bool(session.mcp_bridge)
+
+        return {
+            "ok": True,
+            "message": "Credentials validated successfully",
+            "chat_available": has_llm,
+            "manual_available": has_splitwise
+        }
     except ValueError as e:
         logger.warning("Credential validation failed: %s", e)
         return {"ok": False, "error": str(e)}
@@ -78,7 +87,7 @@ async def credentials_status(session_id: str):
     """Check if credentials are configured and bridge is ready."""
     session = _sessions.get(f"web:{session_id}")
     has_splitwise = bool(session.splitwise_oauth_token or session.splitwise_api_key)
-    has_llm = bool(session.anthropic_api_key or session.openai_api_key or session.groq_api_key)
+    has_llm = bool(session.llm_provider)
     has_bridge = session.mcp_bridge is not None
 
     tools_count = 0
@@ -89,9 +98,11 @@ async def credentials_status(session_id: str):
             pass
 
     return {
-        "configured": has_splitwise and has_llm,
+        "configured": has_splitwise,  # Only Splitwise is required
         "ready": has_bridge,
-        "tools_available": tools_count
+        "tools_available": tools_count,
+        "chat_available": has_llm,
+        "manual_available": has_splitwise
     }
 
 
@@ -107,7 +118,372 @@ async def set_whiteboard(req: WhiteboardRequest):
     """Set the whiteboard (restore from localStorage)."""
     session = _sessions.get(f"web:{req.session_id}")
     session.whiteboard = req.whiteboard
-    return {"ok": True}
+
+
+@router.get("/manual/current-user")
+async def get_current_user_info(session_id: str):
+    """Get current user information."""
+    session = _sessions.get(f"web:{session_id}")
+    bridge = session.mcp_bridge
+
+    if not bridge:
+        return {"ok": False, "error": "Splitwise not configured"}
+
+    try:
+        result = await bridge.call_tool("get_current_user", {})
+        logger.info(f"get_current_user result type: {type(result)}")
+
+        # Extract content from CallToolResult
+        if hasattr(result, 'content'):
+            raw_content = result.content
+            logger.info(f"Has content attribute, type: {type(raw_content)}")
+        else:
+            raw_content = result
+            logger.info(f"No content attribute, using result directly")
+
+        # Parse content
+        import json
+        if isinstance(raw_content, str):
+            logger.info(f"Raw content is string: {raw_content[:200]}")
+            user = json.loads(raw_content)
+        elif isinstance(raw_content, list) and len(raw_content) > 0:
+            content_item = raw_content[0]
+            logger.info(f"Raw content is list, first item type: {type(content_item)}")
+            if hasattr(content_item, 'text'):
+                logger.info(f"Content item has text: {content_item.text[:200]}")
+                user = json.loads(content_item.text)
+            else:
+                user = json.loads(str(content_item))
+        else:
+            logger.info(f"Using raw_content as-is: {raw_content}")
+            user = raw_content
+
+        logger.info(f"Parsed user data: {user}")
+
+        # Extract the nested user object if present
+        if isinstance(user, dict) and "user" in user:
+            user = user["user"]
+            logger.info(f"Extracted nested user: {user}")
+
+        # Clean up user data
+        first_name = (user.get("first_name") or "").strip()
+        last_name = (user.get("last_name") or "").strip()
+        email = (user.get("email") or "").strip()
+
+        result_user = {
+            "id": user.get("id"),
+            "first_name": first_name or None,
+            "last_name": last_name or None,
+            "email": email or None
+        }
+        logger.info(f"Returning user: {result_user}")
+
+        return {
+            "ok": True,
+            "user": result_user
+        }
+
+    except Exception as e:
+        logger.exception("Failed to get current user")
+        return {"ok": False, "error": str(e)}
+
+
+@router.get("/manual/groups")
+async def load_groups(session_id: str):
+    """Load groups from Splitwise and populate whiteboard."""
+    session = _sessions.get(f"web:{session_id}")
+    bridge = session.mcp_bridge
+
+    if not bridge:
+        return {"ok": False, "error": "Splitwise not configured", "groups": []}
+
+    try:
+        # Call get_groups tool
+        result = await bridge.call_tool("get_groups", {})
+
+        # Parse result - CallToolResult has content property
+        import json
+
+        # Extract content from CallToolResult object
+        if hasattr(result, 'content'):
+            raw_content = result.content
+        elif hasattr(result, '__dict__'):
+            raw_content = str(result)
+        else:
+            raw_content = result
+
+        logger.info(f"get_groups raw result type: {type(result)}, content type: {type(raw_content)}")
+
+        # Parse JSON
+        if isinstance(raw_content, str):
+            data = json.loads(raw_content)
+        elif isinstance(raw_content, list) and len(raw_content) > 0:
+            # CallToolResult.content might be a list with text content
+            content_item = raw_content[0]
+            if hasattr(content_item, 'text'):
+                data = json.loads(content_item.text)
+            else:
+                data = json.loads(str(content_item))
+        else:
+            data = raw_content
+
+        groups_list = data.get("groups", []) if isinstance(data, dict) else []
+        logger.info(f"Found {len(groups_list)} groups in response")
+
+        # Cache basic group info in whiteboard
+        for group in groups_list:
+            if isinstance(group, dict) and "id" in group:
+                group_id = str(group["id"])
+
+                # Get detailed group info to populate members
+                try:
+                    group_detail = await bridge.call_tool("get_group", {"group_id": int(group_id)})
+
+                    # Extract content from CallToolResult
+                    if hasattr(group_detail, 'content'):
+                        raw_detail = group_detail.content
+                    else:
+                        raw_detail = group_detail
+
+                    # Parse content
+                    if isinstance(raw_detail, str):
+                        detail_data = json.loads(raw_detail)
+                    elif isinstance(raw_detail, list) and len(raw_detail) > 0:
+                        content_item = raw_detail[0]
+                        if hasattr(content_item, 'text'):
+                            detail_data = json.loads(content_item.text)
+                        else:
+                            detail_data = json.loads(str(content_item))
+                    else:
+                        detail_data = raw_detail
+
+                    group_info = detail_data.get("group", detail_data) if isinstance(detail_data, dict) else {}
+                    logger.info(f"Group {group_id}: found {len(group_info.get('members', []))} members")
+
+                    members = []
+                    default_percentages = {}
+
+                    for member in group_info.get("members", []):
+                        user_id = member.get("user_id") or member.get("id")
+                        if user_id:
+                            first = member.get("first_name", "")
+                            last = member.get("last_name", "")
+                            name = f"{first} {last}".strip() or member.get("email", "Unknown")
+                            members.append({
+                                "user_id": user_id,
+                                "name": name,
+                                "email": member.get("email")
+                            })
+
+                            # Get balance for default percentages
+                            balance = member.get("balance", [])
+                            if balance and isinstance(balance, list):
+                                for bal in balance:
+                                    amount = bal.get("amount")
+                                    if amount:
+                                        default_percentages[str(user_id)] = float(amount)
+
+                    session.whiteboard[group_id] = {
+                        "group_name": group_info.get("name", group.get("name", "Unknown")),
+                        "members": members,
+                        "default_percentages": default_percentages,
+                        "simplify_by_default": group_info.get("simplify_by_default", True)
+                    }
+                except Exception as e:
+                    logger.warning(f"Failed to load details for group {group_id}: {e}")
+                    # Fall back to basic info
+                    session.whiteboard[group_id] = {
+                        "group_name": group.get("name", "Unknown"),
+                        "members": [],
+                        "default_percentages": {},
+                        "simplify_by_default": group.get("simplify_by_default", True)
+                    }
+
+        logger.info(f"Loaded {len(session.whiteboard)} groups into whiteboard for session {session_id}")
+        return {
+            "ok": True,
+            "whiteboard": session.whiteboard,
+            "count": len(session.whiteboard)
+        }
+
+    except Exception as e:
+        logger.exception("Failed to load groups")
+        return {"ok": False, "error": str(e), "groups": []}
+
+
+@router.post("/manual/expense")
+async def create_manual_expense(data: dict):
+    """Create Splitwise expense from manual UI.
+
+    Expected payload:
+    {
+        "session_id": str,
+        "group_id": int|None,
+        "description": str,
+        "cost": float,
+        "currency_code": str,
+        "split_method": "percentage" | "shares" | "fixed",
+        "payers": [{"user_id": int|None, "paid": float}],
+        "splits": [{"user_id": int|None, "value": float}]
+    }
+    """
+    session_id = data.get("session_id", "")
+    session = _sessions.get(f"web:{session_id}")
+    bridge = session.mcp_bridge
+
+    if not bridge:
+        return {"ok": False, "error": "Splitwise not configured"}
+
+    # Validate inputs
+    description = data.get("description", "").strip()
+    if not description:
+        return {"ok": False, "error": "Description is required"}
+
+    try:
+        cost = float(data.get("cost", 0))
+        if cost <= 0:
+            return {"ok": False, "error": "Cost must be greater than 0"}
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "Invalid cost value"}
+
+    currency_code = data.get("currency_code", "USD")
+    split_method = data.get("split_method", "percentage")
+    payers = data.get("payers", [])
+    splits = data.get("splits", [])
+
+    if not payers:
+        return {"ok": False, "error": "At least one payer is required"}
+
+    if not splits:
+        return {"ok": False, "error": "At least one split is required"}
+
+    # Get current user ID
+    import json
+    try:
+        me_result = await bridge.call_tool("get_current_user", {})
+
+        # Extract content from CallToolResult
+        if hasattr(me_result, 'content'):
+            raw_me = me_result.content
+        else:
+            raw_me = me_result
+
+        # Parse content
+        if isinstance(raw_me, str):
+            me = json.loads(raw_me)
+        elif isinstance(raw_me, list) and len(raw_me) > 0:
+            content_item = raw_me[0]
+            if hasattr(content_item, 'text'):
+                me = json.loads(content_item.text)
+            else:
+                me = json.loads(str(content_item))
+        else:
+            me = raw_me
+
+        # Extract nested user object if present
+        if isinstance(me, dict) and "user" in me:
+            me = me["user"]
+
+        current_user_id = me.get("id")
+    except Exception as e:
+        logger.exception("Failed to get current user")
+        return {"ok": False, "error": f"Failed to get current user: {str(e)}"}
+
+    # Build user list with paid_share and owed_share
+    user_map = {}  # user_id -> {"paid_share": float, "owed_share": float}
+
+    # Process payers (who paid)
+    for payer in payers:
+        paid_amount = float(payer.get("paid", 0))
+        if paid_amount <= 0:
+            continue
+        user_id = payer.get("user_id") or current_user_id
+        if user_id not in user_map:
+            user_map[user_id] = {"paid_share": 0.0, "owed_share": 0.0}
+        user_map[user_id]["paid_share"] = round(paid_amount, 2)
+
+    # Process splits (who owes)
+    total_owed_check = 0.0
+    split_values = []  # For shares mode, we need to calculate proportions
+
+    for split in splits:
+        value = float(split.get("value", 0))
+        if value <= 0:
+            continue
+
+        split_values.append({
+            "user_id": split.get("user_id") or current_user_id,
+            "value": value
+        })
+        total_owed_check += value
+
+    # Calculate owed shares based on split method
+    for split_data in split_values:
+        user_id = split_data["user_id"]
+        value = split_data["value"]
+
+        if split_method == "percentage":
+            owed_share = round(cost * value / 100, 2)
+        elif split_method == "shares":
+            # Proportional split: cost * (user_shares / total_shares)
+            owed_share = round(cost * value / total_owed_check, 2)
+        else:  # fixed amounts
+            owed_share = round(value, 2)
+
+        if user_id not in user_map:
+            user_map[user_id] = {"paid_share": 0.0, "owed_share": 0.0}
+        user_map[user_id]["owed_share"] = owed_share
+
+    # Validate totals
+    if split_method == "percentage":
+        if abs(total_owed_check - 100) > 0.01:
+            return {"ok": False, "error": f"Percentages must add up to 100 (currently {total_owed_check:.1f}%)"}
+    elif split_method == "shares":
+        # Shares mode is always valid as long as there are shares
+        if total_owed_check <= 0:
+            return {"ok": False, "error": "At least one share must be assigned"}
+    else:  # fixed amounts
+        if abs(total_owed_check - cost) > 0.01:
+            return {"ok": False, "error": f"Amounts must add up to cost {cost:.2f} (currently {total_owed_check:.2f})"}
+
+    # Build users list for Splitwise API
+    users = []
+    for user_id, shares in user_map.items():
+        users.append({
+            "user_id": user_id,
+            "paid_share": str(shares["paid_share"]),
+            "owed_share": str(shares["owed_share"]),
+        })
+
+    if not users:
+        return {"ok": False, "error": "No valid users provided"}
+
+    # Create expense via Splitwise
+    try:
+        args = {
+            "description": description,
+            "cost": str(round(cost, 2)),
+            "currency_code": currency_code,
+            "users": users,
+        }
+
+        group_id = data.get("group_id")
+        if group_id:
+            args["group_id"] = int(group_id)
+
+        logger.info(f"Creating expense with args: {args}")
+        result = await bridge.call_tool("create_expense", args)
+        logger.info("Created manual expense: %s for $%s", description, cost)
+
+        return {
+            "ok": True,
+            "message": f"✅ Expense '{description}' created successfully!",
+            "expense": result
+        }
+
+    except Exception as e:
+        logger.exception("Failed to create manual expense")
+        return {"ok": False, "error": f"Failed to create expense: {str(e)}"}
 
 
 @router.delete("/whiteboard")
@@ -340,6 +716,14 @@ _HTML = """<!DOCTYPE html>
 
   .btn-text-short { display: none; }
 
+  /* Mode toggle */
+  .mode-toggle { display: flex; gap: 0; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+  .mode-btn { padding: 6px 16px; background: var(--surface2); border: none; border-radius: 0;
+              transition: background .15s, color .15s; }
+  .mode-btn.active { background: var(--accent); color: white; }
+
+  .hidden { display: none !important; }
+
   /* Mobile optimizations */
   @media (max-width: 600px) {
     header { gap: 6px; padding: 10px 12px; }
@@ -350,6 +734,8 @@ _HTML = """<!DOCTYPE html>
     .btn-text-full { display: none; }
     .btn-text-short { display: inline; }
   }
+
+  #chat-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
   #messages { flex: 1; overflow-y: auto; padding: 20px;
               display: flex; flex-direction: column; gap: 12px; }
@@ -376,18 +762,164 @@ _HTML = """<!DOCTYPE html>
   .item-label { font-size: .85rem; color: var(--text2); margin-bottom: 6px; display: flex;
                 justify-content: space-between; }
   .item-label .item-name { color: var(--text); font-weight: 500; }
-  .payer-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .payer-chip { padding: 4px 12px; border-radius: 20px; font-size: .82rem;
+  .payer-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .payer-chip { padding: 6px 14px; border-radius: 20px; font-size: .85rem;
                 border: 1px solid var(--border); background: var(--surface2);
                 cursor: pointer; transition: background .15s, border-color .15s; color: var(--text); }
   .payer-chip:hover { background: var(--border); }
   .payer-chip.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  #payers-container, #splits-container { margin-top: 8px; }
+  #payer-inputs-active { display: flex; flex-direction: column; gap: 10px; }
+  #payer-validation { font-size: .85rem; padding: 8px; border-radius: 6px; text-align: center; font-weight: 500; }
+  #payer-validation.valid { background: rgba(34, 170, 85, 0.2); border: 1px solid #2a5; color: #3fb; }
+  #payer-validation.invalid { background: rgba(221, 68, 68, 0.2); border: 1px solid #d44; color: #f88; }
+  #payer-validation.empty { display: none; }
   .receipt-divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
   .receipt-submit { width: 100%; padding: 9px; background: var(--accent);
                     border-color: var(--accent); color: #fff; border-radius: 10px;
                     font-weight: 600; font-size: .9rem; margin-top: 14px; }
   .receipt-submit:hover:not(:disabled) { background: var(--accent-h); border-color: var(--accent-h); }
   .receipt-submit:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* ── Manual expense panel ──────────────────────────────────────────────── */
+  #manual-panel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    max-width: 600px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  .manual-form {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .manual-form h2 {
+    margin: 0 0 8px 0;
+    font-size: 1.2rem;
+    color: var(--accent);
+  }
+
+  .manual-form label {
+    font-size: .9rem;
+    color: var(--text2);
+    margin-bottom: 4px;
+    display: block;
+  }
+
+  .manual-form input, .manual-form select {
+    padding: 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: .9rem;
+    width: 100%;
+  }
+
+  .manual-form input:focus, .manual-form select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .split-method-toggle {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 8px 0;
+  }
+
+  .split-method-toggle input[type="radio"] {
+    width: auto;
+    margin: 0;
+  }
+
+  .split-method-toggle label {
+    margin: 0;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  #splits-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .member-split-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .member-split-row label {
+    flex: 1;
+    font-size: .9rem;
+    color: var(--text);
+    margin: 0;
+  }
+
+  .member-split-row input {
+    width: 100px;
+    flex-shrink: 0;
+  }
+
+  #split-validation {
+    font-size: .85rem;
+    padding: 8px;
+    border-radius: 6px;
+    text-align: center;
+    font-weight: 500;
+  }
+
+  #split-validation.valid {
+    background: rgba(34, 170, 85, 0.2);
+    border: 1px solid #2a5;
+    color: #3fb;
+  }
+
+  #split-validation.invalid {
+    background: rgba(221, 68, 68, 0.2);
+    border: 1px solid #d44;
+    color: #f88;
+  }
+
+  #split-validation.empty {
+    display: none;
+  }
+
+  #create-expense-btn {
+    width: 100%;
+    padding: 12px;
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    color: #fff;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: .95rem;
+    margin-top: 4px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+
+  #create-expense-btn:hover:not(:disabled) {
+    background: var(--accent-h);
+  }
+
+  #create-expense-btn:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+  }
 
   /* ── Credentials modal ─────────────────────────────────────────────────── */
   .credentials-modal {
@@ -541,21 +1073,92 @@ _HTML = """<!DOCTYPE html>
 
 <header>
   <h1>Splitwise <span>Assistant</span></h1>
+  <div class="mode-toggle">
+    <button class="mode-btn active" id="chat-mode-btn">Chat</button>
+    <button class="mode-btn" id="manual-mode-btn">Manual</button>
+  </div>
   <select id="model-select" title="Switch AI model"></select>
   <button id="install-btn" title="Install app" style="display:none"><span class="btn-text-full">Install App</span><span class="btn-text-short">📲</span></button>
   <button id="reset-btn" title="Start a new conversation"><span class="btn-text-full">New chat</span><span class="btn-text-short">New</span></button>
   <button id="logout-btn" title="Logout and clear all data"><span class="btn-text-full">Logout</span><span class="btn-text-short">🚪</span></button>
 </header>
 
-<div id="messages"></div>
+<div id="chat-container">
+  <div id="messages"></div>
 
-<div class="input-row">
-  <button id="img-btn" title="Upload a receipt">📷</button>
-  <input type="file" id="file-input" accept="image/*">
-  <button id="mic-btn" title="Voice input">🎤</button>
-  <button id="lang-btn" title="Voice language">🇺🇸</button>
-  <textarea id="msg-input" rows="1" placeholder="Ask about your expenses…"></textarea>
-  <button id="send-btn">Send</button>
+  <div class="input-row">
+    <button id="img-btn" title="Upload a receipt">📷</button>
+    <input type="file" id="file-input" accept="image/*">
+    <button id="mic-btn" title="Voice input">🎤</button>
+    <button id="lang-btn" title="Voice language">🇺🇸</button>
+    <textarea id="msg-input" rows="1" placeholder="Ask about your expenses…"></textarea>
+    <button id="send-btn">Send</button>
+  </div>
+</div>
+
+<div id="manual-panel" class="hidden">
+  <div class="manual-form">
+    <h2>Create Expense</h2>
+
+    <div>
+      <label for="group-select">Group</label>
+      <select id="group-select">
+        <option value="">No group (personal)</option>
+      </select>
+    </div>
+
+    <div>
+      <label for="expense-desc">Description *</label>
+      <input id="expense-desc" type="text" placeholder="e.g., Dinner at restaurant" required />
+    </div>
+
+    <div>
+      <label for="expense-cost">Amount *</label>
+      <input id="expense-cost" type="number" placeholder="0.00" step="0.01" min="0.01" required />
+    </div>
+
+    <div>
+      <label for="expense-currency">Currency</label>
+      <select id="expense-currency">
+        <option value="COP">COP - Colombian Peso</option>
+        <option value="USD">USD - US Dollar</option>
+        <option value="MXN">MXN - Mexican Peso</option>
+        <option value="EUR">EUR - Euro</option>
+        <option value="GBP">GBP - British Pound</option>
+        <option value="CAD">CAD - Canadian Dollar</option>
+        <option value="AUD">AUD - Australian Dollar</option>
+        <option value="BRL">BRL - Brazilian Real</option>
+        <option value="ARS">ARS - Argentine Peso</option>
+      </select>
+    </div>
+
+    <div>
+      <label id="payers-label">Who paid?</label>
+      <div id="payers-container"></div>
+      <div id="payer-validation" class="empty"></div>
+    </div>
+
+    <div>
+      <label>Split Method (who owes what)</label>
+      <div class="split-method-toggle">
+        <input type="radio" name="split-method" id="split-percentage" value="percentage" checked />
+        <label for="split-percentage">Percentages (%)</label>
+        <input type="radio" name="split-method" id="split-shares" value="shares" />
+        <label for="split-shares">Shares</label>
+        <input type="radio" name="split-method" id="split-fixed" value="fixed" />
+        <label for="split-fixed">Fixed Amounts</label>
+      </div>
+    </div>
+
+    <div>
+      <label id="splits-label">Who owes what?</label>
+      <div id="splits-container"></div>
+    </div>
+
+    <div id="split-validation" class="empty"></div>
+
+    <button id="create-expense-btn" type="button">Create Expense</button>
+  </div>
 </div>
 
 <script>
@@ -883,21 +1486,34 @@ function showCredentialsModal() {
         • Splitwise: <a href="https://secure.splitwise.com/apps" target="_blank" style="color: var(--accent);">secure.splitwise.com/apps</a>
       </p>
 
-      <h3 style="margin-top: 20px; margin-bottom: 8px; font-size: 0.95rem;">LLM Provider (required)</h3>
+      <h3 style="margin-top: 20px; margin-bottom: 8px; font-size: 0.95rem;">Splitwise (required)</h3>
+      <label for="api-key">Splitwise API Key (easiest)</label>
+      <input type="password" id="api-key" placeholder="Get from secure.splitwise.com/apps">
+
+      <div class="divider">OR</div>
+
+      <label for="oauth-token">OAuth Access Token (advanced)</label>
+      <input type="password" id="oauth-token" placeholder="Use OAuth setup script">
+
+      <h3 style="margin-top: 24px; margin-bottom: 8px; font-size: 0.95rem;">LLM Provider (optional - for AI chat mode)</h3>
       <label for="groq-key">Groq API Key (FREE, recommended) ⭐</label>
-      <input type="password" id="groq-key" placeholder="gsk_...">
+      <input type="password" id="groq-key" placeholder="gsk_... (optional)">
 
       <div class="divider">OR</div>
 
       <label for="anthropic-key">Anthropic API Key</label>
-      <input type="password" id="anthropic-key" placeholder="sk-ant-...">
+      <input type="password" id="anthropic-key" placeholder="sk-ant-... (optional)">
 
       <div class="divider">OR</div>
 
       <label for="openai-key">OpenAI API Key</label>
-      <input type="password" id="openai-key" placeholder="sk-...">
+      <input type="password" id="openai-key" placeholder="sk-... (optional)">
 
-      <h3 style="margin-top: 24px; margin-bottom: 8px; font-size: 0.95rem;">Splitwise (required)</h3>
+      <p style="font-size: 0.8rem; color: var(--text2); margin-top: 12px; font-style: italic;">
+        💡 Skip LLM keys to use Manual mode only (no AI chat)
+      </p>
+
+      <h3 style="margin-top: 24px; margin-bottom: 8px; font-size: 0.95rem; display:none;">Splitwise (required)</h3>
       <label for="api-key">Splitwise API Key (easiest)</label>
       <input type="password" id="api-key" placeholder="Get from secure.splitwise.com/apps">
 
@@ -934,12 +1550,6 @@ async function saveCredentials() {
   // Validate inputs
   const hasLLM = groqKey || anthropicKey || openaiKey;
   const hasSplitwise = oauthToken || apiKey;
-
-  if (!hasLLM) {
-    errorDiv.textContent = 'Please provide Groq, Anthropic, or OpenAI API key';
-    errorDiv.style.display = 'block';
-    return;
-  }
 
   if (!hasSplitwise) {
     errorDiv.textContent = 'Please provide Splitwise OAuth token or API key';
@@ -978,8 +1588,25 @@ async function saveCredentials() {
       }));
 
       document.getElementById('creds-modal').remove();
-      const provider = groqKey ? 'Groq (FREE)' : anthropicKey ? 'Anthropic' : 'OpenAI';
-      addMsg('bot', `✅ Connected using ${provider}! How can I help you with your Splitwise expenses?`);
+
+      // Configure UI based on available modes
+      const chatAvailable = data.chat_available;
+      const manualAvailable = data.manual_available;
+
+      if (chatAvailable && manualAvailable) {
+        // Both modes available
+        const provider = groqKey ? 'Groq (FREE)' : anthropicKey ? 'Anthropic' : 'OpenAI';
+        addMsg('bot', `✅ Connected using ${provider}! How can I help you with your Splitwise expenses?`);
+        document.getElementById('chat-mode-btn').style.display = '';
+        document.getElementById('manual-mode-btn').style.display = '';
+      } else if (manualAvailable) {
+        // Manual mode only (no LLM)
+        addMsg('bot', `✅ Connected to Splitwise! Switch to Manual mode to create expenses.`);
+        document.getElementById('chat-mode-btn').style.display = 'none';
+        document.getElementById('manual-mode-btn').style.display = '';
+        // Auto-switch to manual mode
+        document.getElementById('manual-mode-btn').click();
+      }
     } else {
       errorDiv.textContent = data.error || 'Failed to connect';
       errorDiv.style.display = 'block';
@@ -1009,6 +1636,16 @@ async function restoreCredentials() {
       })
     });
     const data = await res.json();
+
+    if (data.ok) {
+      // Configure UI based on available modes
+      if (!data.chat_available && data.manual_available) {
+        // Manual mode only (no LLM)
+        document.getElementById('chat-mode-btn').style.display = 'none';
+        document.getElementById('manual-mode-btn').style.display = '';
+      }
+    }
+
     return data.ok;
   } catch {
     return false;
@@ -1126,6 +1763,609 @@ document.getElementById('mic-btn').addEventListener('click', () => {
     recognition.stop();
   } else {
     recognition.start();
+  }
+});
+
+// ── Manual Expense Panel ────────────────────────────────────────────────────
+let currentMode = 'chat';
+let currentGroupData = null;
+let currentUserInfo = null;  // Store current user info
+
+// Mode toggle buttons
+document.getElementById('chat-mode-btn').addEventListener('click', () => {
+  currentMode = 'chat';
+  document.getElementById('chat-container').classList.remove('hidden');
+  document.getElementById('manual-panel').classList.add('hidden');
+  document.getElementById('chat-mode-btn').classList.add('active');
+  document.getElementById('manual-mode-btn').classList.remove('active');
+});
+
+document.getElementById('manual-mode-btn').addEventListener('click', async () => {
+  currentMode = 'manual';
+  document.getElementById('chat-container').classList.add('hidden');
+  document.getElementById('manual-panel').classList.remove('hidden');
+  document.getElementById('chat-mode-btn').classList.remove('active');
+  document.getElementById('manual-mode-btn').classList.add('active');
+
+  // Load groups if whiteboard is empty
+  await loadGroupsIfNeeded();
+  populateGroupSelect();
+
+  // Initialize with "No group" selected - should only show current user
+  const groupSelect = document.getElementById('group-select');
+  if (groupSelect.value === '') {
+    currentGroupData = null;
+    renderPayerInputs([]);
+    renderSplitInputs([]);
+  }
+});
+
+// Load current user info
+async function loadCurrentUser() {
+  if (currentUserInfo) return; // Already loaded
+
+  try {
+    const res = await fetch(`${API}/manual/current-user?session_id=${sessionId}`);
+    const data = await res.json();
+
+    if (data.ok && data.user) {
+      currentUserInfo = data.user;
+      console.log('Current user:', currentUserInfo);
+    }
+  } catch (err) {
+    console.error('Failed to load current user:', err);
+  }
+}
+
+// Load groups from Splitwise if not already cached
+async function loadGroupsIfNeeded() {
+  // Always load current user info first (needed for payer selection)
+  await loadCurrentUser();
+
+  const stored = localStorage.getItem('sw_whiteboard');
+  const whiteboard = stored ? JSON.parse(stored) : {};
+
+  // If whiteboard is empty or has no groups, load from Splitwise
+  if (Object.keys(whiteboard).length === 0) {
+    const select = document.getElementById('group-select');
+    select.disabled = true;
+    select.innerHTML = '<option value="">Loading groups...</option>';
+
+    try {
+      const res = await fetch(`${API}/manual/groups?session_id=${sessionId}`);
+      const data = await res.json();
+
+      console.log('Load groups response:', data);
+
+      if (data.ok && data.whiteboard) {
+        // Save to localStorage
+        localStorage.setItem('sw_whiteboard', JSON.stringify(data.whiteboard));
+        console.log(`Loaded ${data.count} groups from Splitwise`, data.whiteboard);
+      } else {
+        console.warn('Failed to load groups:', data.error);
+        alert('Failed to load groups: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error('Failed to load groups:', err);
+      alert('Error loading groups: ' + err.message);
+    } finally {
+      select.disabled = false;
+    }
+  }
+}
+
+// Populate groups from whiteboard
+function populateGroupSelect() {
+  const stored = localStorage.getItem('sw_whiteboard');
+  const whiteboard = stored ? JSON.parse(stored) : {};
+  const select = document.getElementById('group-select');
+
+  // Keep the "No group" option
+  select.innerHTML = '<option value="">No group (personal)</option>';
+
+  const groupCount = Object.keys(whiteboard).length;
+  if (groupCount === 0) {
+    const helperText = document.createElement('p');
+    helperText.style.cssText = 'font-size:0.85rem; color:var(--text2); margin-top:8px; font-style:italic;';
+    helperText.textContent = '💡 No groups found. You can still create personal expenses, or create a group at splitwise.com first.';
+    select.parentElement.appendChild(helperText);
+  } else {
+    Object.entries(whiteboard).forEach(([groupId, data]) => {
+      const option = document.createElement('option');
+      option.value = groupId;
+      option.textContent = data.group_name || `Group ${groupId}`;
+      select.appendChild(option);
+    });
+  }
+}
+
+// Group selection change handler
+document.getElementById('group-select').addEventListener('change', (e) => {
+  const groupId = e.target.value;
+  console.log('Group selected:', groupId);
+
+  if (!groupId) {
+    // Personal expense - only current user
+    currentGroupData = null;
+    renderPayerInputs([]);  // Empty array = only current user
+    renderSplitInputs([]);
+    return;
+  }
+
+  const stored = localStorage.getItem('sw_whiteboard');
+  const whiteboard = stored ? JSON.parse(stored) : {};
+  currentGroupData = whiteboard[groupId];
+
+  console.log('Current group data:', currentGroupData);
+  console.log('Members:', currentGroupData?.members);
+  console.log('Default percentages:', currentGroupData?.default_percentages);
+
+  if (currentGroupData && currentGroupData.members) {
+    renderPayerInputs(currentGroupData.members);
+    renderSplitInputs(currentGroupData.members);
+    applyDefaultPercentages();
+  } else {
+    console.warn('No members found for group', groupId);
+    renderPayerInputs([]);
+    renderSplitInputs([]);
+  }
+});
+
+// Render payer inputs (who paid) - button/chip style
+function renderPayerInputs(members) {
+  const container = document.getElementById('payers-container');
+  container.innerHTML = '';
+
+  // Get all members including current user
+  const allMembers = [];
+
+  // Add current user (match from members list if possible)
+  if (currentUserInfo) {
+    console.log('Current user ID:', currentUserInfo.id, 'Type:', typeof currentUserInfo.id);
+    console.log('Members:', members.map(m => ({id: m.user_id, type: typeof m.user_id, name: m.name})));
+    const matchedMember = members.find(m => String(m.user_id) === String(currentUserInfo.id));
+    if (matchedMember) {
+      // User is in the group, use their name from group
+      allMembers.push({
+        user_id: currentUserInfo.id,
+        name: matchedMember.name,
+        isCurrentUser: true
+      });
+    } else {
+      // User not in group, use their account name
+      const firstName = (currentUserInfo.first_name || '').trim();
+      const lastName = (currentUserInfo.last_name || '').trim();
+      let userName = `${firstName} ${lastName}`.trim();
+
+      if (!userName && currentUserInfo.email) {
+        userName = currentUserInfo.email.split('@')[0]; // Use email username
+      }
+      if (!userName) {
+        userName = 'You';
+      }
+      allMembers.push({
+        user_id: currentUserInfo.id,
+        name: userName,
+        isCurrentUser: true
+      });
+    }
+  }
+
+  // Add other members (excluding current user if already added)
+  members.forEach(member => {
+    if (!currentUserInfo || String(member.user_id) !== String(currentUserInfo.id)) {
+      allMembers.push({
+        user_id: member.user_id,
+        name: member.name,
+        isCurrentUser: false
+      });
+    }
+  });
+
+  // Create chips container
+  const chipsDiv = document.createElement('div');
+  chipsDiv.className = 'payer-chips';
+
+  // Create input fields container
+  const inputsDiv = document.createElement('div');
+  inputsDiv.id = 'payer-inputs-active';
+
+  // Track active payers
+  const activePayers = new Set();
+
+  // Default: current user pays full amount
+  if (allMembers.length > 0 && allMembers[0].isCurrentUser) {
+    activePayers.add(allMembers[0].user_id);
+  }
+
+  // Render chips
+  allMembers.forEach(member => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'payer-chip';
+    chip.dataset.userId = member.user_id;
+    chip.textContent = member.name;
+
+    if (activePayers.has(member.user_id)) {
+      chip.classList.add('selected');
+    }
+
+    chip.addEventListener('click', () => {
+      if (activePayers.has(member.user_id)) {
+        activePayers.delete(member.user_id);
+        chip.classList.remove('selected');
+      } else {
+        activePayers.add(member.user_id);
+        chip.classList.add('selected');
+      }
+      updatePayerInputs();
+    });
+
+    chipsDiv.appendChild(chip);
+  });
+
+  container.appendChild(chipsDiv);
+  container.appendChild(inputsDiv);
+
+  // Function to update input fields based on selected payers
+  function updatePayerInputs() {
+    inputsDiv.innerHTML = '';
+    const cost = parseFloat(document.getElementById('expense-cost').value) || 0;
+
+    if (activePayers.size === 0) {
+      validatePayers();
+      return;
+    }
+
+    // If only one payer and cost > 0, default to full amount
+    const defaultAmount = (activePayers.size === 1 && cost > 0) ? cost : 0;
+
+    activePayers.forEach(userId => {
+      const member = allMembers.find(m => m.user_id === userId);
+      const row = document.createElement('div');
+      row.className = 'member-split-row';
+      row.innerHTML = `
+        <label>${member.name}</label>
+        <input type="number" class="payer-input" data-user-id="${userId}" step="0.01" min="0" value="${defaultAmount}" placeholder="0.00" />
+      `;
+      inputsDiv.appendChild(row);
+    });
+
+    // Add input listeners
+    inputsDiv.querySelectorAll('.payer-input').forEach(input => {
+      input.addEventListener('input', validatePayers);
+    });
+
+    validatePayers();
+  }
+
+  // Store for external access
+  container._updatePayerInputs = updatePayerInputs;
+  container._allMembers = allMembers;
+  container._activePayers = activePayers;
+
+  // Initial render
+  updatePayerInputs();
+}
+
+// Validate payers add up to total cost
+function validatePayers() {
+  const cost = parseFloat(document.getElementById('expense-cost').value) || 0;
+  const inputs = document.querySelectorAll('.payer-input');
+  const validation = document.getElementById('payer-validation');
+
+  let sum = 0;
+  let hasNonZero = false;
+
+  inputs.forEach(input => {
+    const val = parseFloat(input.value) || 0;
+    if (val > 0) hasNonZero = true;
+    sum += val;
+  });
+
+  if (!hasNonZero) {
+    validation.className = 'empty';
+    validation.textContent = '';
+    return;
+  }
+
+  if (cost <= 0) {
+    validation.className = 'invalid';
+    validation.textContent = '✗ Enter total amount first';
+  } else if (Math.abs(sum - cost) <= 0.01) {
+    validation.className = 'valid';
+    validation.textContent = `✓ Payments total $${sum.toFixed(2)}`;
+  } else {
+    validation.className = 'invalid';
+    validation.textContent = `✗ Payments must total $${cost.toFixed(2)} (currently $${sum.toFixed(2)})`;
+  }
+}
+
+// Render split inputs for members (who owes)
+function renderSplitInputs(members) {
+  const container = document.getElementById('splits-container');
+  container.innerHTML = '';
+
+  // Get all members including current user (same logic as payers)
+  const allMembers = [];
+
+  // Add current user (match from members list if possible)
+  if (currentUserInfo) {
+    const matchedMember = members.find(m => String(m.user_id) === String(currentUserInfo.id));
+    if (matchedMember) {
+      // User is in the group, use their name from group
+      allMembers.push({
+        user_id: currentUserInfo.id,
+        name: matchedMember.name,
+        isCurrentUser: true
+      });
+    } else {
+      // User not in group, use their account name
+      const firstName = (currentUserInfo.first_name || '').trim();
+      const lastName = (currentUserInfo.last_name || '').trim();
+      let userName = `${firstName} ${lastName}`.trim();
+
+      if (!userName && currentUserInfo.email) {
+        userName = currentUserInfo.email.split('@')[0]; // Use email username
+      }
+      if (!userName) {
+        userName = 'You';
+      }
+      allMembers.push({
+        user_id: currentUserInfo.id,
+        name: userName,
+        isCurrentUser: true
+      });
+    }
+  }
+
+  // Add other members (excluding current user if already added)
+  members.forEach(member => {
+    if (!currentUserInfo || String(member.user_id) !== String(currentUserInfo.id)) {
+      allMembers.push({
+        user_id: member.user_id,
+        name: member.name,
+        isCurrentUser: false
+      });
+    }
+  });
+
+  // Render all members
+  allMembers.forEach(member => {
+    const row = document.createElement('div');
+    row.className = 'member-split-row';
+    row.innerHTML = `
+      <label>${member.name}</label>
+      <input type="number" class="split-input" data-user-id="${member.user_id}" step="0.01" min="0" value="0" />
+    `;
+    container.appendChild(row);
+  });
+
+  // Add input listeners for validation
+  container.querySelectorAll('.split-input').forEach(input => {
+    input.addEventListener('input', validateSplits);
+  });
+
+  validateSplits();
+}
+
+// Apply default percentages from whiteboard
+function applyDefaultPercentages() {
+  if (!currentGroupData || !currentGroupData.default_percentages) return;
+
+  const defaultPercentages = currentGroupData.default_percentages;
+  const total = Object.values(defaultPercentages).reduce((sum, val) => sum + Math.abs(val), 0);
+
+  if (total === 0) return;
+
+  // Normalize to percentages that add up to 100
+  const inputs = document.querySelectorAll('.split-input');
+  inputs.forEach(input => {
+    const userId = input.dataset.userId;
+    if (userId && defaultPercentages[userId]) {
+      const rawAmount = Math.abs(defaultPercentages[userId]);
+      const percentage = (rawAmount / total) * 100;
+      input.value = percentage.toFixed(2);
+    }
+  });
+
+  validateSplits();
+}
+
+// Split method toggle handler
+document.querySelectorAll('input[name="split-method"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    updateSplitLabels();
+    validateSplits();
+  });
+});
+
+// Update split input labels based on method
+function updateSplitLabels() {
+  const method = document.querySelector('input[name="split-method"]:checked').value;
+  const label = document.getElementById('splits-label');
+  if (method === 'percentage') {
+    label.textContent = 'Splits (%)';
+  } else if (method === 'shares') {
+    label.textContent = 'Splits (Shares)';
+  } else {
+    label.textContent = 'Splits (Fixed Amounts)';
+  }
+}
+
+// Validate splits in real-time
+function validateSplits() {
+  const method = document.querySelector('input[name="split-method"]:checked').value;
+  const cost = parseFloat(document.getElementById('expense-cost').value) || 0;
+  const inputs = document.querySelectorAll('.split-input');
+  const validation = document.getElementById('split-validation');
+
+  let sum = 0;
+  let hasNonZero = false;
+
+  inputs.forEach(input => {
+    const val = parseFloat(input.value) || 0;
+    if (val > 0) hasNonZero = true;
+    sum += val;
+  });
+
+  if (!hasNonZero) {
+    validation.className = 'empty';
+    validation.textContent = '';
+    return;
+  }
+
+  if (method === 'percentage') {
+    if (Math.abs(sum - 100) <= 0.01) {
+      validation.className = 'valid';
+      validation.textContent = `✓ Percentages total ${sum.toFixed(1)}%`;
+    } else {
+      validation.className = 'invalid';
+      validation.textContent = `✗ Percentages must total 100% (currently ${sum.toFixed(1)}%)`;
+    }
+  } else if (method === 'shares') {
+    // Shares mode - just show the total shares, always valid if > 0
+    if (cost <= 0) {
+      validation.className = 'invalid';
+      validation.textContent = '✗ Enter an amount first';
+    } else {
+      validation.className = 'valid';
+      validation.textContent = `✓ Total shares: ${sum.toFixed(1)} (each share = $${(cost / sum).toFixed(2)})`;
+    }
+  } else {
+    // Fixed amounts mode
+    if (cost <= 0) {
+      validation.className = 'invalid';
+      validation.textContent = '✗ Enter an amount first';
+    } else if (Math.abs(sum - cost) <= 0.01) {
+      validation.className = 'valid';
+      validation.textContent = `✓ Amounts total $${sum.toFixed(2)}`;
+    } else {
+      validation.className = 'invalid';
+      validation.textContent = `✗ Amounts must total $${cost.toFixed(2)} (currently $${sum.toFixed(2)})`;
+    }
+  }
+}
+
+// Validate when cost changes
+document.getElementById('expense-cost').addEventListener('input', () => {
+  validateSplits();
+
+  // Update payer inputs if they exist
+  const container = document.getElementById('payers-container');
+  if (container && container._updatePayerInputs) {
+    container._updatePayerInputs();
+  } else {
+    validatePayers();
+  }
+});
+
+// Create expense button handler
+document.getElementById('create-expense-btn').addEventListener('click', async () => {
+  const description = document.getElementById('expense-desc').value.trim();
+  const cost = parseFloat(document.getElementById('expense-cost').value) || 0;
+  const currency = document.getElementById('expense-currency').value;
+  const groupId = document.getElementById('group-select').value;
+  const method = document.querySelector('input[name="split-method"]:checked').value;
+
+  // Validation
+  if (!description) {
+    alert('Please enter a description');
+    return;
+  }
+
+  if (cost <= 0) {
+    alert('Please enter a valid amount');
+    return;
+  }
+
+  // Collect payers (who paid)
+  const payerInputs = document.querySelectorAll('.payer-input');
+  const payers = [];
+
+  payerInputs.forEach(input => {
+    const value = parseFloat(input.value) || 0;
+    if (value > 0) {
+      payers.push({
+        user_id: input.dataset.userId ? parseInt(input.dataset.userId) : null,
+        paid: value
+      });
+    }
+  });
+
+  if (payers.length === 0) {
+    alert('Please specify who paid for this expense');
+    return;
+  }
+
+  // Validate payers add up to cost
+  const payerTotal = payers.reduce((sum, p) => sum + p.paid, 0);
+  if (Math.abs(payerTotal - cost) > 0.01) {
+    alert(`Payments must add up to $${cost.toFixed(2)} (currently $${payerTotal.toFixed(2)})`);
+    return;
+  }
+
+  // Collect splits (who owes)
+  const splitInputs = document.querySelectorAll('.split-input');
+  const splits = [];
+
+  splitInputs.forEach(input => {
+    const value = parseFloat(input.value) || 0;
+    if (value > 0) {
+      splits.push({
+        user_id: input.dataset.userId ? parseInt(input.dataset.userId) : null,
+        value: value
+      });
+    }
+  });
+
+  if (splits.length === 0) {
+    alert('Please specify who owes what');
+    return;
+  }
+
+  // Disable button during request
+  const btn = document.getElementById('create-expense-btn');
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+
+  try {
+    const res = await fetch(`${API}/manual/expense`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        session_id: sessionId,
+        group_id: groupId || null,
+        description: description,
+        cost: cost,
+        currency_code: currency,
+        split_method: method,
+        payers: payers,
+        splits: splits
+      })
+    });
+
+    const data = await res.json();
+
+    if (data.ok) {
+      // Success - show message and clear form
+      alert(data.message || 'Expense created successfully!');
+      document.getElementById('expense-desc').value = '';
+      document.getElementById('expense-cost').value = '';
+      renderPayerInputs(currentGroupData ? currentGroupData.members : []);
+      renderSplitInputs(currentGroupData ? currentGroupData.members : []);
+      if (currentGroupData) {
+        applyDefaultPercentages();
+      }
+    } else {
+      alert('Error: ' + (data.error || 'Failed to create expense'));
+    }
+  } catch (err) {
+    console.error('Failed to create expense:', err);
+    alert('Network error - please try again');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create Expense';
   }
 });
 

@@ -88,8 +88,7 @@ class SessionManager:
 
         if not has_splitwise:
             raise ValueError("Must provide Splitwise oauth_token or api_key")
-        if not has_llm:
-            raise ValueError("Must provide Anthropic, OpenAI, or Groq API key")
+        # LLM is now optional - if not provided, only manual mode is available
 
         session = self.get(phone)
 
@@ -106,13 +105,17 @@ class SessionManager:
         session.groq_api_key = groq_api_key
 
         # Initialize LLM provider with session keys (prefer Groq if provided since it's free)
-        from .llm import make_provider_with_key
-        if groq_api_key:
-            session.llm_provider = make_provider_with_key("groq", "llama-3.3-70b-versatile", groq_api_key)
-        elif anthropic_api_key:
-            session.llm_provider = make_provider_with_key("anthropic", "claude-sonnet-4-6", anthropic_api_key)
-        elif openai_api_key:
-            session.llm_provider = make_provider_with_key("openai", "gpt-4o", openai_api_key)
+        # Only initialize if an LLM key is provided
+        if has_llm:
+            from .llm import make_provider_with_key
+            if groq_api_key:
+                session.llm_provider = make_provider_with_key("groq", "llama-3.3-70b-versatile", groq_api_key)
+            elif anthropic_api_key:
+                session.llm_provider = make_provider_with_key("anthropic", "claude-sonnet-4-6", anthropic_api_key)
+            elif openai_api_key:
+                session.llm_provider = make_provider_with_key("openai", "gpt-4o", openai_api_key)
+        else:
+            session.llm_provider = None
 
         # Create and initialize new bridge
         from .mcp_bridge import create_bridge
