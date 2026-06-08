@@ -1086,27 +1086,27 @@ _HTML = """<!DOCTYPE html>
 <div class="drop-overlay">Drop receipt image to scan it</div>
 
 <header>
-  <h1>Splitwise <span>Assistant</span></h1>
+  <h1>Splitwise <span>Asistente</span></h1>
   <div class="mode-toggle">
     <button class="mode-btn active" id="chat-mode-btn">Chat</button>
     <button class="mode-btn" id="manual-mode-btn">Manual</button>
   </div>
-  <select id="model-select" title="Switch AI model"></select>
-  <button id="install-btn" title="Install app" style="display:none"><span class="btn-text-full">Install App</span><span class="btn-text-short">📲</span></button>
-  <button id="reset-btn" title="Start a new conversation"><span class="btn-text-full">New chat</span><span class="btn-text-short">New</span></button>
-  <button id="logout-btn" title="Logout and clear all data"><span class="btn-text-full">Logout</span><span class="btn-text-short">🚪</span></button>
+  <select id="model-select" title="Cambiar modelo de IA"></select>
+  <button id="install-btn" title="Instalar app" style="display:none"><span class="btn-text-full">Instalar App</span><span class="btn-text-short">📲</span></button>
+  <button id="reset-btn" title="Iniciar nueva conversación"><span class="btn-text-full">Nuevo chat</span><span class="btn-text-short">Nuevo</span></button>
+  <button id="logout-btn" title="Cerrar sesión y borrar datos"><span class="btn-text-full">Salir</span><span class="btn-text-short">🚪</span></button>
 </header>
 
 <div id="chat-container">
   <div id="messages"></div>
 
   <div class="input-row">
-    <button id="img-btn" title="Upload a receipt">📷</button>
+    <button id="img-btn" title="Subir recibo">📷</button>
     <input type="file" id="file-input" accept="image/*">
-    <button id="mic-btn" title="Voice input">🎤</button>
-    <button id="lang-btn" title="Voice language">🇺🇸</button>
-    <textarea id="msg-input" rows="1" placeholder="Ask about your expenses…"></textarea>
-    <button id="send-btn">Send</button>
+    <button id="mic-btn" title="Entrada de voz">🎤</button>
+    <button id="lang-btn" title="Idioma de voz">🇺🇸</button>
+    <textarea id="msg-input" rows="1" placeholder="Pregunta sobre tus gastos…"></textarea>
+    <button id="send-btn">Enviar</button>
   </div>
 </div>
 
@@ -1118,57 +1118,57 @@ _HTML = """<!DOCTYPE html>
       <label for="group-select">Group</label>
       <div style="display: flex; gap: 8px;">
         <select id="group-select" style="flex: 1;">
-          <option value="">No group (personal)</option>
+          <option value="">Sin grupo (personal)</option>
         </select>
-        <button id="reload-groups-btn" type="button" style="padding: 10px 16px; white-space: nowrap;" title="Reload groups from Splitwise">🔄 Reload</button>
+        <button id="reload-groups-btn" type="button" style="padding: 10px 16px; white-space: nowrap;" title="Recargar grupos desde Splitwise">🔄 Recargar</button>
       </div>
     </div>
 
     <div>
-      <label for="expense-desc">Description *</label>
-      <input id="expense-desc" type="text" placeholder="e.g., Dinner at restaurant" required />
+      <label for="expense-desc">Descripción *</label>
+      <input id="expense-desc" type="text" placeholder="ej., Cena en restaurante" required />
     </div>
 
     <div>
-      <label for="expense-cost">Amount *</label>
+      <label for="expense-cost">Monto *</label>
       <input id="expense-cost" type="number" placeholder="0.00" step="0.01" min="0.01" required />
     </div>
 
     <div>
-      <label for="expense-currency">Currency</label>
+      <label for="expense-currency">Moneda</label>
       <select id="expense-currency">
-        <option value="COP">COP - Colombian Peso</option>
-        <option value="USD">USD - US Dollar</option>
-        <option value="MXN">MXN - Mexican Peso</option>
+        <option value="COP">COP - Peso Colombiano</option>
+        <option value="USD">USD - Dólar Estadounidense</option>
+        <option value="MXN">MXN - Peso Mexicano</option>
         <option value="EUR">EUR - Euro</option>
-        <option value="GBP">GBP - British Pound</option>
-        <option value="CAD">CAD - Canadian Dollar</option>
-        <option value="AUD">AUD - Australian Dollar</option>
-        <option value="BRL">BRL - Brazilian Real</option>
-        <option value="ARS">ARS - Argentine Peso</option>
+        <option value="GBP">GBP - Libra Esterlina</option>
+        <option value="CAD">CAD - Dólar Canadiense</option>
+        <option value="AUD">AUD - Dólar Australiano</option>
+        <option value="BRL">BRL - Real Brasileño</option>
+        <option value="ARS">ARS - Peso Argentino</option>
       </select>
     </div>
 
     <div>
-      <label id="payers-label">Who paid?</label>
+      <label id="payers-label">¿Quién pagó?</label>
       <div id="payers-container"></div>
       <div id="payer-validation" class="empty"></div>
     </div>
 
     <div>
-      <label>Split Method (who owes what)</label>
+      <label>Método de División (quién debe qué)</label>
       <div class="split-method-toggle">
         <input type="radio" name="split-method" id="split-percentage" value="percentage" checked />
-        <label for="split-percentage">Percentages (%)</label>
+        <label for="split-percentage">Porcentajes (%)</label>
         <input type="radio" name="split-method" id="split-shares" value="shares" />
-        <label for="split-shares">Shares</label>
+        <label for="split-shares">Partes</label>
         <input type="radio" name="split-method" id="split-fixed" value="fixed" />
-        <label for="split-fixed">Fixed Amounts</label>
+        <label for="split-fixed">Montos Fijos</label>
       </div>
     </div>
 
     <div>
-      <label id="splits-label">Who owes what?</label>
+      <label id="splits-label">¿Quién debe qué?</label>
       <div id="splits-container"></div>
     </div>
 
@@ -1482,7 +1482,7 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
   document.getElementById('msg-input').placeholder = 'Ask about your expenses…';
 
   // Show credential modal again
-  addMsg('bot', 'Logged out successfully. Please reconnect to continue.');
+  addMsg('bot', 'Sesión cerrada exitosamente. Por favor reconecta para continuar.');
   showCredentialsModal();
 });
 
@@ -1493,60 +1493,60 @@ function showCredentialsModal() {
   modal.id = 'creds-modal';
   modal.innerHTML = `
     <div class="modal-content">
-      <h2>Connect Your Accounts</h2>
-      <p>Enter your API credentials to get started. Your keys are stored securely in your browser.</p>
+      <h2>Conecta Tus Cuentas</h2>
+      <p>Ingresa tus credenciales API para comenzar. Tus claves se guardan de forma segura en tu navegador.</p>
       <p style="font-size: 0.85rem; color: var(--text2); margin-top: 8px;">
-        <strong>Where to get keys:</strong><br>
-        • Groq (FREE): <a href="https://console.groq.com/keys" target="_blank" style="color: var(--accent);">console.groq.com</a> ⭐<br>
+        <strong>Dónde obtener claves:</strong><br>
+        • Groq (GRATIS): <a href="https://console.groq.com/keys" target="_blank" style="color: var(--accent);">console.groq.com</a> ⭐<br>
         • Anthropic: <a href="https://console.anthropic.com/account/keys" target="_blank" style="color: var(--accent);">console.anthropic.com</a><br>
         • OpenAI: <a href="https://platform.openai.com/api-keys" target="_blank" style="color: var(--accent);">platform.openai.com</a><br>
         • Splitwise: <a href="https://secure.splitwise.com/apps" target="_blank" style="color: var(--accent);">secure.splitwise.com/apps</a>
       </p>
 
-      <h3 style="margin-top: 20px; margin-bottom: 8px; font-size: 0.95rem;">Splitwise (required)</h3>
-      <label for="api-key">Splitwise API Key (easiest)</label>
-      <input type="password" id="api-key" placeholder="Get from secure.splitwise.com/apps">
+      <h3 style="margin-top: 20px; margin-bottom: 8px; font-size: 0.95rem;">Splitwise (requerido)</h3>
+      <label for="api-key">Clave API Splitwise (más fácil)</label>
+      <input type="password" id="api-key" placeholder="Obtener de secure.splitwise.com/apps">
 
-      <div class="divider">OR</div>
+      <div class="divider">O</div>
 
-      <label for="oauth-token">OAuth Access Token (advanced)</label>
-      <input type="password" id="oauth-token" placeholder="Use OAuth setup script">
+      <label for="oauth-token">Token de Acceso OAuth (avanzado)</label>
+      <input type="password" id="oauth-token" placeholder="Usa script de configuración OAuth">
 
-      <h3 style="margin-top: 24px; margin-bottom: 8px; font-size: 0.95rem;">LLM Provider (optional - for AI chat mode)</h3>
-      <label for="groq-key">Groq API Key (FREE, recommended) ⭐</label>
-      <input type="password" id="groq-key" placeholder="gsk_... (optional)">
+      <h3 style="margin-top: 24px; margin-bottom: 8px; font-size: 0.95rem;">Proveedor LLM (opcional - para modo chat IA)</h3>
+      <label for="groq-key">Clave API Groq (GRATIS, recomendado) ⭐</label>
+      <input type="password" id="groq-key" placeholder="gsk_... (opcional)">
 
-      <div class="divider">OR</div>
+      <div class="divider">O</div>
 
-      <label for="anthropic-key">Anthropic API Key</label>
-      <input type="password" id="anthropic-key" placeholder="sk-ant-... (optional)">
+      <label for="anthropic-key">Clave API Anthropic</label>
+      <input type="password" id="anthropic-key" placeholder="sk-ant-... (opcional)">
 
-      <div class="divider">OR</div>
+      <div class="divider">O</div>
 
-      <label for="openai-key">OpenAI API Key</label>
-      <input type="password" id="openai-key" placeholder="sk-... (optional)">
+      <label for="openai-key">Clave API OpenAI</label>
+      <input type="password" id="openai-key" placeholder="sk-... (opcional)">
 
       <p style="font-size: 0.8rem; color: var(--text2); margin-top: 12px; font-style: italic;">
-        💡 Skip LLM keys to use Manual mode only (no AI chat)
+        💡 Omite claves LLM para usar solo modo Manual (sin chat IA)
       </p>
 
-      <h3 style="margin-top: 24px; margin-bottom: 8px; font-size: 0.95rem; display:none;">Splitwise (required)</h3>
-      <label for="api-key">Splitwise API Key (easiest)</label>
-      <input type="password" id="api-key" placeholder="Get from secure.splitwise.com/apps">
+      <h3 style="margin-top: 24px; margin-bottom: 8px; font-size: 0.95rem; display:none;">Splitwise (requerido)</h3>
+      <label for="api-key">Clave API Splitwise (más fácil)</label>
+      <input type="password" id="api-key" placeholder="Obtener de secure.splitwise.com/apps">
 
-      <div class="divider">OR</div>
+      <div class="divider">O</div>
 
-      <label for="oauth-token">OAuth Access Token (advanced)</label>
-      <input type="password" id="oauth-token" placeholder="Use OAuth setup script">
+      <label for="oauth-token">Token de Acceso OAuth (avanzado)</label>
+      <input type="password" id="oauth-token" placeholder="Usa script de configuración OAuth">
 
       <div class="error-msg" id="cred-error" style="display:none"></div>
 
       <div class="modal-actions">
         <button id="save-creds" style="background:var(--accent); border-color:var(--accent); color:#fff">
-          Connect
+          Conectar
         </button>
         <button id="learn-more" onclick="window.open('https://secure.splitwise.com/apps', '_blank')">
-          Get Keys
+          Obtener Claves
         </button>
       </div>
     </div>
@@ -1569,14 +1569,14 @@ async function saveCredentials() {
   const hasSplitwise = oauthToken || apiKey;
 
   if (!hasSplitwise) {
-    errorDiv.textContent = 'Please provide Splitwise OAuth token or API key';
+    errorDiv.textContent = 'Por favor proporciona token OAuth o clave API de Splitwise';
     errorDiv.style.display = 'block';
     return;
   }
 
   const btn = document.getElementById('save-creds');
   btn.disabled = true;
-  btn.textContent = 'Connecting...';
+  btn.textContent = 'Conectando...';
 
   try {
     const res = await fetch(`${API}/credentials`, {
@@ -1612,29 +1612,29 @@ async function saveCredentials() {
 
       if (chatAvailable && manualAvailable) {
         // Both modes available
-        const provider = groqKey ? 'Groq (FREE)' : anthropicKey ? 'Anthropic' : 'OpenAI';
-        addMsg('bot', `✅ Connected using ${provider}! How can I help you with your Splitwise expenses?`);
+        const provider = groqKey ? 'Groq (GRATIS)' : anthropicKey ? 'Anthropic' : 'OpenAI';
+        addMsg('bot', `✅ ¡Conectado usando ${provider}! ¿Cómo puedo ayudarte con tus gastos de Splitwise?`);
         document.getElementById('chat-mode-btn').style.display = '';
         document.getElementById('manual-mode-btn').style.display = '';
       } else if (manualAvailable) {
         // Manual mode only (no LLM)
-        addMsg('bot', `✅ Connected to Splitwise! Switch to Manual mode to create expenses.`);
+        addMsg('bot', `✅ ¡Conectado a Splitwise! Cambia a modo Manual para crear gastos.`);
         document.getElementById('chat-mode-btn').style.display = 'none';
         document.getElementById('manual-mode-btn').style.display = '';
         // Auto-switch to manual mode
         document.getElementById('manual-mode-btn').click();
       }
     } else {
-      errorDiv.textContent = data.error || 'Failed to connect';
+      errorDiv.textContent = data.error || 'Error al conectar';
       errorDiv.style.display = 'block';
       btn.disabled = false;
-      btn.textContent = 'Connect';
+      btn.textContent = 'Conectar';
     }
   } catch (err) {
-    errorDiv.textContent = 'Network error - please try again';
+    errorDiv.textContent = 'Error de red - por favor intenta de nuevo';
     errorDiv.style.display = 'block';
     btn.disabled = false;
-    btn.textContent = 'Connect';
+    btn.textContent = 'Conectar';
   }
 }
 
@@ -1686,10 +1686,10 @@ function updateLangButton() {
   const btn = document.getElementById('lang-btn');
   if (voiceLang === 'es-ES') {
     btn.textContent = '🇪🇸';
-    btn.title = 'Voice: Spanish';
+    btn.title = 'Voz: Español';
   } else {
     btn.textContent = '🇺🇸';
-    btn.title = 'Voice: English';
+    btn.title = 'Voz: Inglés';
   }
 }
 
@@ -1846,7 +1846,7 @@ async function loadGroupsIfNeeded() {
   if (Object.keys(whiteboard).length === 0) {
     const select = document.getElementById('group-select');
     select.disabled = true;
-    select.innerHTML = '<option value="">Loading groups...</option>';
+    select.innerHTML = '<option value="">Cargando grupos...</option>';
 
     try {
       const res = await fetch(`${API}/manual/groups?session_id=${sessionId}`);
@@ -1860,11 +1860,11 @@ async function loadGroupsIfNeeded() {
         console.log(`Loaded ${data.count} groups from Splitwise`, data.whiteboard);
       } else {
         console.warn('Failed to load groups:', data.error);
-        alert('Failed to load groups: ' + (data.error || 'Unknown error'));
+        alert('Error al cargar grupos: ' + (data.error || 'Error desconocido'));
       }
     } catch (err) {
       console.error('Failed to load groups:', err);
-      alert('Error loading groups: ' + err.message);
+      alert('Error cargando grupos: ' + err.message);
     } finally {
       select.disabled = false;
     }
@@ -1876,7 +1876,7 @@ document.getElementById('reload-groups-btn')?.addEventListener('click', async ()
   const btn = document.getElementById('reload-groups-btn');
   const originalText = btn.textContent;
   btn.disabled = true;
-  btn.textContent = '🔄 Loading...';
+  btn.textContent = '🔄 Cargando...';
 
   try {
     // Clear cached whiteboard
@@ -1885,7 +1885,7 @@ document.getElementById('reload-groups-btn')?.addEventListener('click', async ()
     // Force reload from Splitwise
     const select = document.getElementById('group-select');
     select.disabled = true;
-    select.innerHTML = '<option value="">Loading groups...</option>';
+    select.innerHTML = '<option value="">Cargando grupos...</option>';
 
     const res = await fetch(`${API}/manual/groups?session_id=${sessionId}`);
     const data = await res.json();
@@ -1893,13 +1893,13 @@ document.getElementById('reload-groups-btn')?.addEventListener('click', async ()
     if (data.ok && data.whiteboard) {
       localStorage.setItem('sw_whiteboard', JSON.stringify(data.whiteboard));
       populateGroupSelect();
-      alert(`✅ Reloaded ${data.count} groups from Splitwise`);
+      alert(`✅ Recargados ${data.count} grupos de Splitwise`);
     } else {
-      alert('Failed to reload groups: ' + (data.error || 'Unknown error'));
+      alert('Error al recargar grupos: ' + (data.error || 'Error desconocido'));
     }
   } catch (err) {
     console.error('Failed to reload groups:', err);
-    alert('Error reloading groups: ' + err.message);
+    alert('Error recargando grupos: ' + err.message);
   } finally {
     btn.disabled = false;
     btn.textContent = originalText;
@@ -1914,19 +1914,19 @@ function populateGroupSelect() {
   const select = document.getElementById('group-select');
 
   // Keep the "No group" option
-  select.innerHTML = '<option value="">No group (personal)</option>';
+  select.innerHTML = '<option value="">Sin grupo (personal)</option>';
 
   const groupCount = Object.keys(whiteboard).length;
   if (groupCount === 0) {
     const helperText = document.createElement('p');
     helperText.style.cssText = 'font-size:0.85rem; color:var(--text2); margin-top:8px; font-style:italic;';
-    helperText.textContent = '💡 No groups found. You can still create personal expenses, or create a group at splitwise.com first.';
+    helperText.textContent = '💡 No se encontraron grupos. Puedes crear gastos personales, o crear un grupo en splitwise.com primero.';
     select.parentElement.appendChild(helperText);
   } else {
     Object.entries(whiteboard).forEach(([groupId, data]) => {
       const option = document.createElement('option');
       option.value = groupId;
-      option.textContent = data.group_name || `Group ${groupId}`;
+      option.textContent = data.group_name || `Grupo ${groupId}`;
       select.appendChild(option);
     });
   }
@@ -2124,13 +2124,13 @@ function validatePayers() {
 
   if (cost <= 0) {
     validation.className = 'invalid';
-    validation.textContent = '✗ Enter total amount first';
+    validation.textContent = '✗ Ingresa el monto total primero';
   } else if (Math.abs(sum - cost) <= 0.01) {
     validation.className = 'valid';
-    validation.textContent = `✓ Payments total $${sum.toFixed(2)}`;
+    validation.textContent = `✓ Pagos totales $${sum.toFixed(2)}`;
   } else {
     validation.className = 'invalid';
-    validation.textContent = `✗ Payments must total $${cost.toFixed(2)} (currently $${sum.toFixed(2)})`;
+    validation.textContent = `✗ Los pagos deben sumar $${cost.toFixed(2)} (actualmente $${sum.toFixed(2)})`;
   }
 }
 
@@ -2222,8 +2222,22 @@ function applyDefaultPercentages() {
 
 // Split method toggle handler
 document.querySelectorAll('input[name="split-method"]').forEach(radio => {
-  radio.addEventListener('change', () => {
+  radio.addEventListener('change', (e) => {
+    const newMethod = e.target.value;
     updateSplitLabels();
+
+    // Reset values based on method
+    const inputs = document.querySelectorAll('.split-input');
+    if (newMethod === 'percentage') {
+      // Restore default percentages from whiteboard
+      applyDefaultPercentages();
+    } else {
+      // Reset all to 0 for shares or fixed amounts
+      inputs.forEach(input => {
+        input.value = '0';
+      });
+    }
+
     validateSplits();
   });
 });
@@ -2233,11 +2247,11 @@ function updateSplitLabels() {
   const method = document.querySelector('input[name="split-method"]:checked').value;
   const label = document.getElementById('splits-label');
   if (method === 'percentage') {
-    label.textContent = 'Splits (%)';
+    label.textContent = 'Divisiones (%)';
   } else if (method === 'shares') {
-    label.textContent = 'Splits (Shares)';
+    label.textContent = 'Divisiones (Partes)';
   } else {
-    label.textContent = 'Splits (Fixed Amounts)';
+    label.textContent = 'Divisiones (Montos Fijos)';
   }
 }
 
@@ -2266,31 +2280,31 @@ function validateSplits() {
   if (method === 'percentage') {
     if (Math.abs(sum - 100) <= 0.01) {
       validation.className = 'valid';
-      validation.textContent = `✓ Percentages total ${sum.toFixed(1)}%`;
+      validation.textContent = `✓ Porcentajes suman ${sum.toFixed(1)}%`;
     } else {
       validation.className = 'invalid';
-      validation.textContent = `✗ Percentages must total 100% (currently ${sum.toFixed(1)}%)`;
+      validation.textContent = `✗ Los porcentajes deben sumar 100% (actualmente ${sum.toFixed(1)}%)`;
     }
   } else if (method === 'shares') {
     // Shares mode - just show the total shares, always valid if > 0
     if (cost <= 0) {
       validation.className = 'invalid';
-      validation.textContent = '✗ Enter an amount first';
+      validation.textContent = '✗ Ingresa un monto primero';
     } else {
       validation.className = 'valid';
-      validation.textContent = `✓ Total shares: ${sum.toFixed(1)} (each share = $${(cost / sum).toFixed(2)})`;
+      validation.textContent = `✓ Total partes: ${sum.toFixed(1)} (cada parte = $${(cost / sum).toFixed(2)})`;
     }
   } else {
     // Fixed amounts mode
     if (cost <= 0) {
       validation.className = 'invalid';
-      validation.textContent = '✗ Enter an amount first';
+      validation.textContent = '✗ Ingresa un monto primero';
     } else if (Math.abs(sum - cost) <= 0.01) {
       validation.className = 'valid';
-      validation.textContent = `✓ Amounts total $${sum.toFixed(2)}`;
+      validation.textContent = `✓ Los montos suman $${sum.toFixed(2)}`;
     } else {
       validation.className = 'invalid';
-      validation.textContent = `✗ Amounts must total $${cost.toFixed(2)} (currently $${sum.toFixed(2)})`;
+      validation.textContent = `✗ Los montos deben sumar $${cost.toFixed(2)} (actualmente $${sum.toFixed(2)})`;
     }
   }
 }
@@ -2318,12 +2332,12 @@ document.getElementById('create-expense-btn').addEventListener('click', async ()
 
   // Validation
   if (!description) {
-    alert('Please enter a description');
+    alert('Por favor ingresa una descripción');
     return;
   }
 
   if (cost <= 0) {
-    alert('Please enter a valid amount');
+    alert('Por favor ingresa un monto válido');
     return;
   }
 
@@ -2342,14 +2356,14 @@ document.getElementById('create-expense-btn').addEventListener('click', async ()
   });
 
   if (payers.length === 0) {
-    alert('Please specify who paid for this expense');
+    alert('Por favor especifica quién pagó este gasto');
     return;
   }
 
   // Validate payers add up to cost
   const payerTotal = payers.reduce((sum, p) => sum + p.paid, 0);
   if (Math.abs(payerTotal - cost) > 0.01) {
-    alert(`Payments must add up to $${cost.toFixed(2)} (currently $${payerTotal.toFixed(2)})`);
+    alert(`Los pagos deben sumar $${cost.toFixed(2)} (actualmente $${payerTotal.toFixed(2)})`);
     return;
   }
 
@@ -2368,14 +2382,14 @@ document.getElementById('create-expense-btn').addEventListener('click', async ()
   });
 
   if (splits.length === 0) {
-    alert('Please specify who owes what');
+    alert('Por favor especifica quién debe qué');
     return;
   }
 
   // Disable button during request
   const btn = document.getElementById('create-expense-btn');
   btn.disabled = true;
-  btn.textContent = 'Creating...';
+  btn.textContent = 'Creando...';
 
   try {
     const res = await fetch(`${API}/manual/expense`, {
@@ -2397,7 +2411,7 @@ document.getElementById('create-expense-btn').addEventListener('click', async ()
 
     if (data.ok) {
       // Success - show message and clear form
-      alert(data.message || 'Expense created successfully!');
+      alert(data.message || '¡Gasto creado exitosamente!');
       document.getElementById('expense-desc').value = '';
       document.getElementById('expense-cost').value = '';
       renderPayerInputs(currentGroupData ? currentGroupData.members : []);
@@ -2406,14 +2420,14 @@ document.getElementById('create-expense-btn').addEventListener('click', async ()
         applyDefaultPercentages();
       }
     } else {
-      alert('Error: ' + (data.error || 'Failed to create expense'));
+      alert('Error: ' + (data.error || 'Error al crear gasto'));
     }
   } catch (err) {
     console.error('Failed to create expense:', err);
-    alert('Network error - please try again');
+    alert('Error de red - por favor intenta de nuevo');
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Create Expense';
+    btn.textContent = 'Crear Gasto';
   }
 });
 
@@ -2434,7 +2448,7 @@ document.getElementById('create-expense-btn').addEventListener('click', async ()
   } else {
     // Restore whiteboard cache from localStorage
     await restoreWhiteboard();
-    addMsg('bot', 'Hi! Ask me anything about your Splitwise expenses, or drop a receipt photo.');
+    addMsg('bot', '¡Hola! Pregúntame sobre tus gastos de Splitwise, o envía una foto de recibo.');
   }
 })();
 
@@ -2470,16 +2484,16 @@ function showIOSInstallInstructions() {
   modal.className = 'credentials-modal';
   modal.innerHTML = `
     <div class="modal-content">
-      <h2>📲 Install App</h2>
-      <p>To add Splitwise Assistant to your home screen:</p>
+      <h2>📲 Instalar App</h2>
+      <p>Para añadir Splitwise Asistente a tu pantalla de inicio:</p>
       <ol style="line-height: 1.8; margin-left: 20px; color: var(--text);">
-        <li>Tap the <strong>Share</strong> button <svg style="width:16px;height:16px;vertical-align:middle" viewBox="0 0 50 50"><path fill="currentColor" d="M30.3 13.7L25 8.4l-5.3 5.3-1.4-1.4L25 5.6l6.7 6.7z"/><path fill="currentColor" d="M24 7h2v21h-2z"/><path fill="currentColor" d="M35 40H15c-1.7 0-3-1.3-3-3V19c0-1.7 1.3-3 3-3h7v2h-7c-.6 0-1 .4-1 1v18c0 .6.4 1 1 1h20c.6 0 1-.4 1-1V19c0-.6-.4-1-1-1h-7v-2h7c1.7 0 3 1.3 3 3v18c0 1.7-1.3 3-3 3z"/></svg></li>
-        <li>Scroll down and tap <strong>"Add to Home Screen"</strong></li>
-        <li>Tap <strong>"Add"</strong></li>
+        <li>Toca el botón <strong>Compartir</strong> <svg style="width:16px;height:16px;vertical-align:middle" viewBox="0 0 50 50"><path fill="currentColor" d="M30.3 13.7L25 8.4l-5.3 5.3-1.4-1.4L25 5.6l6.7 6.7z"/><path fill="currentColor" d="M24 7h2v21h-2z"/><path fill="currentColor" d="M35 40H15c-1.7 0-3-1.3-3-3V19c0-1.7 1.3-3 3-3h7v2h-7c-.6 0-1 .4-1 1v18c0 .6.4 1 1 1h20c.6 0 1-.4 1-1V19c0-.6-.4-1-1-1h-7v-2h7c1.7 0 3 1.3 3 3v18c0 1.7-1.3 3-3 3z"/></svg></li>
+        <li>Desplázate hacia abajo y toca <strong>"Añadir a pantalla de inicio"</strong></li>
+        <li>Toca <strong>"Añadir"</strong></li>
       </ol>
       <div class="modal-actions">
         <button id="close-install-modal" style="background:var(--accent); border-color:var(--accent); color:#fff">
-          Got it
+          Entendido
         </button>
       </div>
     </div>
