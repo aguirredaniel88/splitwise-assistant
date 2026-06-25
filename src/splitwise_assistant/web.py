@@ -66,7 +66,7 @@ async def set_credentials(req: CredentialsRequest):
         )
         session = _sessions.get(f"web:{req.session_id}")
         has_llm = bool(session.llm_provider)
-        has_splitwise = bool(session.mcp_bridge)
+        has_splitwise = bool(session.direct_client)
 
         return {
             "ok": True,
@@ -86,7 +86,7 @@ async def set_credentials(req: CredentialsRequest):
 async def credentials_status(session_id: str):
     """Check if credentials are configured and bridge is ready."""
     session = _sessions.get(f"web:{session_id}")
-    has_splitwise = bool(session.splitwise_oauth_token or session.splitwise_api_key)
+    has_splitwise = bool(session.direct_client)
     has_llm = bool(session.llm_provider)
     has_bridge = session.mcp_bridge is not None
 
@@ -98,8 +98,8 @@ async def credentials_status(session_id: str):
             pass
 
     return {
-        "configured": has_splitwise,  # Only Splitwise is required
-        "ready": has_bridge,
+        "configured": has_splitwise,
+        "ready": has_splitwise,
         "tools_available": tools_count,
         "chat_available": has_llm,
         "manual_available": has_splitwise
@@ -124,65 +124,21 @@ async def set_whiteboard(req: WhiteboardRequest):
 async def get_current_user_info(session_id: str):
     """Get current user information."""
     session = _sessions.get(f"web:{session_id}")
-    bridge = session.mcp_bridge
-
-    if not bridge:
+    if not session.direct_client:
         return {"ok": False, "error": "Splitwise not configured"}
 
     try:
-        result = await bridge.call_tool("get_current_user", {})
-        logger.info(f"get_current_user result type: {type(result)}")
-
-        # Extract content from CallToolResult
-        if hasattr(result, 'content'):
-            raw_content = result.content
-            logger.info(f"Has content attribute, type: {type(raw_content)}")
-        else:
-            raw_content = result
-            logger.info(f"No content attribute, using result directly")
-
-        # Parse content
-        import json
-        if isinstance(raw_content, str):
-            logger.info(f"Raw content is string: {raw_content[:200]}")
-            user = json.loads(raw_content)
-        elif isinstance(raw_content, list) and len(raw_content) > 0:
-            content_item = raw_content[0]
-            logger.info(f"Raw content is list, first item type: {type(content_item)}")
-            if hasattr(content_item, 'text'):
-                logger.info(f"Content item has text: {content_item.text[:200]}")
-                user = json.loads(content_item.text)
-            else:
-                user = json.loads(str(content_item))
-        else:
-            logger.info(f"Using raw_content as-is: {raw_content}")
-            user = raw_content
-
-        logger.info(f"Parsed user data: {user}")
-
-        # Extract the nested user object if present
-        if isinstance(user, dict) and "user" in user:
-            user = user["user"]
-            logger.info(f"Extracted nested user: {user}")
-
-        # Clean up user data
-        first_name = (user.get("first_name") or "").strip()
-        last_name = (user.get("last_name") or "").strip()
-        email = (user.get("email") or "").strip()
-
-        result_user = {
-            "id": user.get("id"),
-            "first_name": first_name or None,
-            "last_name": last_name or None,
-            "email": email or None
-        }
-        logger.info(f"Returning user: {result_user}")
-
+        data = await session.direct_client.get_current_user()
+        user = data.get("user", data)
         return {
             "ok": True,
-            "user": result_user
+            "user": {
+                "id": user.get("id"),
+                "first_name": (user.get("first_name") or "").strip() or None,
+                "last_name": (user.get("last_name") or "").strip() or None,
+                "email": (user.get("email") or "").strip() or None,
+            }
         }
-
     except Exception as e:
         logger.exception("Failed to get current user")
         return {"ok": False, "error": str(e)}
@@ -191,134 +147,66 @@ async def get_current_user_info(session_id: str):
 @router.get("/manual/groups")
 async def load_groups(session_id: str):
     """Load groups from Splitwise and populate whiteboard."""
+    import re
     session = _sessions.get(f"web:{session_id}")
-    bridge = session.mcp_bridge
-
-    if not bridge:
+    if not session.direct_client:
         return {"ok": False, "error": "Splitwise not configured", "groups": []}
 
     try:
-        # Call get_groups tool
-        result = await bridge.call_tool("get_groups", {})
+        data = await session.direct_client.get_groups()
+        groups_list = data.get("groups", [])
+        logger.info(f"Found {len(groups_list)} groups")
 
-        # Parse result - CallToolResult has content property
-        import json
-
-        # Extract content from CallToolResult object
-        if hasattr(result, 'content'):
-            raw_content = result.content
-        elif hasattr(result, '__dict__'):
-            raw_content = str(result)
-        else:
-            raw_content = result
-
-        logger.info(f"get_groups raw result type: {type(result)}, content type: {type(raw_content)}")
-
-        # Parse JSON
-        if isinstance(raw_content, str):
-            data = json.loads(raw_content)
-        elif isinstance(raw_content, list) and len(raw_content) > 0:
-            # CallToolResult.content might be a list with text content
-            content_item = raw_content[0]
-            if hasattr(content_item, 'text'):
-                data = json.loads(content_item.text)
-            else:
-                data = json.loads(str(content_item))
-        else:
-            data = raw_content
-
-        groups_list = data.get("groups", []) if isinstance(data, dict) else []
-        logger.info(f"Found {len(groups_list)} groups in response")
-
-        # Cache basic group info in whiteboard
         for group in groups_list:
-            if isinstance(group, dict) and "id" in group:
-                group_id = str(group["id"])
+            if not isinstance(group, dict) or "id" not in group:
+                continue
+            group_id = str(group["id"])
+            try:
+                detail_data = await session.direct_client.get_group(int(group_id))
+                group_info = detail_data.get("group", detail_data)
 
-                # Get detailed group info to populate members
-                try:
-                    group_detail = await bridge.call_tool("get_group", {"group_id": int(group_id)})
+                members = []
+                default_percentages = {}
 
-                    # Extract content from CallToolResult
-                    if hasattr(group_detail, 'content'):
-                        raw_detail = group_detail.content
-                    else:
-                        raw_detail = group_detail
+                for member in group_info.get("members", []):
+                    user_id = member.get("user_id") or member.get("id")
+                    if not user_id:
+                        continue
+                    first = member.get("first_name", "")
+                    last = member.get("last_name", "")
+                    name = f"{first} {last}".strip() or member.get("email", "Unknown")
+                    members.append({"user_id": user_id, "name": name, "email": member.get("email")})
 
-                    # Parse content
-                    if isinstance(raw_detail, str):
-                        detail_data = json.loads(raw_detail)
-                    elif isinstance(raw_detail, list) and len(raw_detail) > 0:
-                        content_item = raw_detail[0]
-                        if hasattr(content_item, 'text'):
-                            detail_data = json.loads(content_item.text)
-                        else:
-                            detail_data = json.loads(str(content_item))
-                    else:
-                        detail_data = raw_detail
+                whiteboard_text = group_info.get("whiteboard", "")
+                if whiteboard_text:
+                    for line in whiteboard_text.split('\n'):
+                        m = re.match(r'^([^:]+):\s*(\d+(?:\.\d+)?)\s*%?\s*$', line.strip())
+                        if m:
+                            name_key = m.group(1).strip().lower()
+                            pct = float(m.group(2))
+                            for member in members:
+                                first_word = member["name"].split()[0].lower() if member["name"] else ""
+                                if first_word and first_word in name_key:
+                                    default_percentages[str(member["user_id"])] = pct
+                                    break
 
-                    group_info = detail_data.get("group", detail_data) if isinstance(detail_data, dict) else {}
-                    logger.info(f"Group {group_id}: found {len(group_info.get('members', []))} members")
-
-                    members = []
-                    default_percentages = {}
-
-                    # Build member list
-                    for member in group_info.get("members", []):
-                        user_id = member.get("user_id") or member.get("id")
-                        if user_id:
-                            first = member.get("first_name", "")
-                            last = member.get("last_name", "")
-                            name = f"{first} {last}".strip() or member.get("email", "Unknown")
-                            members.append({
-                                "user_id": user_id,
-                                "name": name,
-                                "email": member.get("email")
-                            })
-
-                    # Parse whiteboard text for default percentages
-                    whiteboard_text = group_info.get("whiteboard", "")
-                    if whiteboard_text:
-                        logger.info(f"Parsing whiteboard text for group {group_id}")
-                        # Parse lines like "Monica: 10%" or "Daniel: 40%"
-                        import re
-                        for line in whiteboard_text.split('\n'):
-                            # Match pattern: "Name: XX%" or "Name: XX.X%"
-                            match = re.match(r'^([^:]+):\s*(\d+(?:\.\d+)?)\s*%?\s*$', line.strip())
-                            if match:
-                                name_in_whiteboard = match.group(1).strip().lower()
-                                percentage = float(match.group(2))
-
-                                # Find matching member by first name (case-insensitive)
-                                for member in members:
-                                    member_first = member["name"].split()[0].lower() if member["name"] else ""
-                                    if member_first and member_first in name_in_whiteboard:
-                                        default_percentages[str(member["user_id"])] = percentage
-                                        logger.info(f"Matched '{name_in_whiteboard}' to user {member['user_id']} ({member['name']}): {percentage}%")
-                                        break
-
-                    session.whiteboard[group_id] = {
-                        "group_name": group_info.get("name", group.get("name", "Unknown")),
-                        "members": members,
-                        "default_percentages": default_percentages,
-                        "simplify_by_default": group_info.get("simplify_by_default", True)
-                    }
-                except Exception as e:
-                    logger.warning(f"Failed to load details for group {group_id}: {e}")
-                    # Fall back to basic info
-                    session.whiteboard[group_id] = {
-                        "group_name": group.get("name", "Unknown"),
-                        "members": [],
-                        "default_percentages": {},
-                        "simplify_by_default": group.get("simplify_by_default", True)
-                    }
+                session.whiteboard[group_id] = {
+                    "group_name": group_info.get("name", group.get("name", "Unknown")),
+                    "members": members,
+                    "default_percentages": default_percentages,
+                    "simplify_by_default": group_info.get("simplify_by_default", True),
+                }
+            except Exception as e:
+                logger.warning(f"Failed to load details for group {group_id}: {e}")
+                session.whiteboard[group_id] = {
+                    "group_name": group.get("name", "Unknown"),
+                    "members": [],
+                    "default_percentages": {},
+                    "simplify_by_default": group.get("simplify_by_default", True),
+                }
 
         logger.info(f"Loaded {len(session.whiteboard)} groups into whiteboard for session {session_id}")
-        return {
-            "ok": True,
-            "whiteboard": session.whiteboard,
-            "count": len(session.whiteboard)
-        }
+        return {"ok": True, "whiteboard": session.whiteboard, "count": len(session.whiteboard)}
 
     except Exception as e:
         logger.exception("Failed to load groups")
@@ -343,9 +231,8 @@ async def create_manual_expense(data: dict):
     """
     session_id = data.get("session_id", "")
     session = _sessions.get(f"web:{session_id}")
-    bridge = session.mcp_bridge
 
-    if not bridge:
+    if not session.direct_client:
         return {"ok": False, "error": "Splitwise not configured"}
 
     # Validate inputs
@@ -372,32 +259,9 @@ async def create_manual_expense(data: dict):
         return {"ok": False, "error": "At least one split is required"}
 
     # Get current user ID
-    import json
     try:
-        me_result = await bridge.call_tool("get_current_user", {})
-
-        # Extract content from CallToolResult
-        if hasattr(me_result, 'content'):
-            raw_me = me_result.content
-        else:
-            raw_me = me_result
-
-        # Parse content
-        if isinstance(raw_me, str):
-            me = json.loads(raw_me)
-        elif isinstance(raw_me, list) and len(raw_me) > 0:
-            content_item = raw_me[0]
-            if hasattr(content_item, 'text'):
-                me = json.loads(content_item.text)
-            else:
-                me = json.loads(str(content_item))
-        else:
-            me = raw_me
-
-        # Extract nested user object if present
-        if isinstance(me, dict) and "user" in me:
-            me = me["user"]
-
+        me_data = await session.direct_client.get_current_user()
+        me = me_data.get("user", me_data)
         current_user_id = me.get("id")
     except Exception as e:
         logger.exception("Failed to get current user")
@@ -486,7 +350,7 @@ async def create_manual_expense(data: dict):
             args["group_id"] = int(group_id)
 
         logger.info(f"Creating expense with args: {args}")
-        result = await bridge.call_tool("create_expense", args)
+        result = await session.direct_client.create_expense(args)
         logger.info("Created manual expense: %s for $%s", description, cost)
 
         return {

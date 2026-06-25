@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Optional, Any
 
 if TYPE_CHECKING:
     from .llm import LLMProvider
+    from .splitwise_http import SplitwiseDirectClient
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +37,10 @@ class Session:
     anthropic_api_key: Optional[str] = field(default=None, repr=False)
     openai_api_key: Optional[str] = field(default=None, repr=False)
     groq_api_key: Optional[str] = field(default=None, repr=False)
-    # Per-session MCP bridge
+    # Per-session MCP bridge (AI chat mode only)
     mcp_bridge: Optional[Any] = field(default=None, repr=False)
+    # Per-session direct HTTP client (manual mode — no MCP)
+    direct_client: Optional[Any] = field(default=None, repr=False)
     # Whiteboard: cached group info to avoid repeated API calls
     whiteboard: dict[str, Any] = field(default_factory=dict)
 
@@ -92,10 +95,13 @@ class SessionManager:
 
         session = self.get(phone)
 
-        # Clean up old bridge if exists
+        # Clean up old clients if they exist
         if session.mcp_bridge:
             await session.mcp_bridge.shutdown()
             session.mcp_bridge = None
+        if session.direct_client:
+            await session.direct_client.close()
+            session.direct_client = None
 
         # Store credentials (memory only)
         session.splitwise_oauth_token = oauth_token
@@ -117,27 +123,38 @@ class SessionManager:
         else:
             session.llm_provider = None
 
-        # Create and initialize new bridge
-        from .mcp_bridge import create_bridge
-        bridge = create_bridge(
-            oauth_access_token=oauth_token,
-            api_key=api_key
+        # Always create a direct HTTP client (used by manual mode endpoints)
+        from .splitwise_http import SplitwiseDirectClient
+        session.direct_client = SplitwiseDirectClient(
+            api_key=api_key,
+            oauth_token=oauth_token,
         )
 
-        try:
-            await bridge.startup()
-            session.mcp_bridge = bridge
-            logger.info("Initialized bridge for session %s", phone)
-            return True
-        except Exception as e:
-            logger.error("Failed to initialize bridge for %s: %s", phone, e)
-            raise ValueError(f"Invalid credentials: {e}")
+        # Create MCP bridge only when an LLM is configured (AI chat mode)
+        if has_llm:
+            from .mcp_bridge import create_bridge
+            bridge = create_bridge(
+                oauth_access_token=oauth_token,
+                api_key=api_key
+            )
+            try:
+                await bridge.startup()
+                session.mcp_bridge = bridge
+                logger.info("Initialized MCP bridge for session %s", phone)
+            except Exception as e:
+                logger.error("Failed to initialize MCP bridge for %s: %s", phone, e)
+                raise ValueError(f"Invalid credentials: {e}")
+
+        return True
 
     async def reset(self, phone: str) -> None:
         """Reset session and cleanup resources."""
         session = self._sessions.get(phone)
-        if session and session.mcp_bridge:
-            await session.mcp_bridge.shutdown()
+        if session:
+            if session.mcp_bridge:
+                await session.mcp_bridge.shutdown()
+            if session.direct_client:
+                await session.direct_client.close()
         self._sessions.pop(phone, None)
 
     async def _cleanup(self) -> None:
