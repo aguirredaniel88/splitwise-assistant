@@ -26,13 +26,17 @@ _global_bridge: Optional[MCPBridge] = None
 async def lifespan(app: FastAPI):
     global _global_bridge
 
-    # Create default bridge from environment for WhatsApp and health check
-    _global_bridge = create_bridge(
-        oauth_access_token=settings.splitwise_oauth_access_token,
-        api_key=settings.splitwise_api_key
-    )
-    await _global_bridge.startup()
-    logger.info("Global bridge initialized for WhatsApp endpoint")
+    # Only create the global bridge if credentials are available in the environment
+    # (used by the WhatsApp endpoint; web UI users bring their own credentials)
+    if settings.splitwise_oauth_access_token or settings.splitwise_api_key:
+        _global_bridge = create_bridge(
+            oauth_access_token=settings.splitwise_oauth_access_token,
+            api_key=settings.splitwise_api_key
+        )
+        await _global_bridge.startup()
+        logger.info("Global bridge initialized for WhatsApp endpoint")
+    else:
+        logger.info("No global Splitwise credentials — WhatsApp endpoint disabled, web UI still available")
 
     yield
 
